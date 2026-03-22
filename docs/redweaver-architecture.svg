@@ -1,0 +1,177 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 620" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0a0e1a"/>
+      <stop offset="100%" stop-color="#0d1224"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#2563eb"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#10b981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#d97706"/>
+    </linearGradient>
+    <linearGradient id="purple" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#8b5cf6"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="900" height="620" fill="url(#bg)" rx="12"/>
+
+  <!-- ===== FRONTEND LAYER ===== -->
+  <rect x="40" y="25" width="820" height="100" rx="10" fill="#111827" stroke="#1e3a5f" stroke-width="1.5"/>
+  <text x="450" y="50" text-anchor="middle" fill="#60a5fa" font-size="13" font-weight="600" letter-spacing="1.5">FRONTEND</text>
+  <text x="450" y="70" text-anchor="middle" fill="#94a3b8" font-size="11">React 18 + TypeScript + Vite</text>
+
+  <!-- Frontend page boxes -->
+  <rect x="60"  y="85" width="110" height="28" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="115" y="103" text-anchor="middle" fill="#e2e8f0" font-size="10">Dashboard</text>
+
+  <rect x="180" y="85" width="110" height="28" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="235" y="103" text-anchor="middle" fill="#e2e8f0" font-size="10">Hunt</text>
+
+  <rect x="300" y="85" width="110" height="28" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="355" y="103" text-anchor="middle" fill="#e2e8f0" font-size="10">Findings</text>
+
+  <rect x="420" y="85" width="110" height="28" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="475" y="103" text-anchor="middle" fill="#e2e8f0" font-size="10">Sessions</text>
+
+  <rect x="540" y="85" width="110" height="28" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="595" y="103" text-anchor="middle" fill="#e2e8f0" font-size="10">Knowledge</text>
+
+  <rect x="660" y="85" width="110" height="28" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="715" y="103" text-anchor="middle" fill="#e2e8f0" font-size="10">Settings</text>
+
+  <!-- SSE arrow -->
+  <line x1="450" y1="125" x2="450" y2="160" stroke="#3b82f6" stroke-width="2" stroke-dasharray="6,3"/>
+  <polygon points="445,155 450,165 455,155" fill="#3b82f6"/>
+  <text x="475" y="148" fill="#60a5fa" font-size="9" font-weight="500">SSE Stream</text>
+
+  <!-- ===== BACKEND LAYER ===== -->
+  <rect x="40" y="165" width="820" height="250" rx="10" fill="#111827" stroke="#1e3a5f" stroke-width="1.5"/>
+  <text x="450" y="190" text-anchor="middle" fill="#60a5fa" font-size="13" font-weight="600" letter-spacing="1.5">BACKEND</text>
+  <text x="450" y="208" text-anchor="middle" fill="#94a3b8" font-size="11">FastAPI + CrewAI</text>
+
+  <!-- CrewAI Crew box -->
+  <rect x="70" y="220" width="540" height="140" rx="8" fill="#0f172a" stroke="#1e3a5f" stroke-width="1"/>
+  <text x="340" y="242" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">CrewAI Crew — Sequential Tasks</text>
+
+  <!-- Agent pipeline -->
+  <rect x="90"  y="256" width="80" height="32" rx="6" fill="url(#accent)" opacity="0.9"/>
+  <text x="130" y="276" text-anchor="middle" fill="white" font-size="10" font-weight="600">Recon</text>
+
+  <text x="182" y="276" fill="#475569" font-size="14">&#8594;</text>
+
+  <rect x="195" y="256" width="80" height="32" rx="6" fill="url(#accent)" opacity="0.9"/>
+  <text x="235" y="276" text-anchor="middle" fill="white" font-size="10" font-weight="600">Fuzzer</text>
+
+  <text x="287" y="276" fill="#475569" font-size="14">&#8594;</text>
+
+  <rect x="300" y="256" width="80" height="32" rx="6" fill="url(#accent)" opacity="0.9"/>
+  <text x="340" y="276" text-anchor="middle" fill="white" font-size="10" font-weight="600">Crawler</text>
+
+  <text x="392" y="276" fill="#475569" font-size="14">&#8594;</text>
+
+  <rect x="405" y="256" width="80" height="32" rx="6" fill="url(#accent)" opacity="0.9"/>
+  <text x="445" y="276" text-anchor="middle" fill="white" font-size="10" font-weight="600">Vuln Scan</text>
+
+  <text x="497" y="276" fill="#475569" font-size="14">&#8594;</text>
+
+  <rect x="510" y="256" width="80" height="32" rx="6" fill="url(#accent)" opacity="0.9"/>
+  <text x="550" y="276" text-anchor="middle" fill="white" font-size="10" font-weight="500">Web Search</text>
+
+  <!-- Second row of agents -->
+  <text x="182" y="316" fill="#475569" font-size="14">&#8594;</text>
+
+  <rect x="195" y="300" width="100" height="32" rx="6" fill="url(#purple)" opacity="0.9"/>
+  <text x="245" y="320" text-anchor="middle" fill="white" font-size="10" font-weight="600">Exploit Analyst</text>
+
+  <text x="307" y="316" fill="#475569" font-size="14">&#8594;</text>
+
+  <rect x="320" y="300" width="100" height="32" rx="6" fill="url(#green)" opacity="0.9"/>
+  <text x="370" y="320" text-anchor="middle" fill="white" font-size="10" font-weight="600">Report Writer</text>
+
+  <text x="432" y="316" fill="#475569" font-size="14">&#8594;</text>
+
+  <rect x="445" y="300" width="80" height="32" rx="6" fill="url(#orange)" opacity="0.85"/>
+  <text x="485" y="316" text-anchor="middle" fill="white" font-size="9" font-weight="500">SSH / PrivEsc</text>
+  <text x="485" y="327" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="8">(optional)</text>
+
+  <!-- Right side: services -->
+  <rect x="630" y="225" width="210" height="45" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+  <text x="735" y="244" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">LLM Factory</text>
+  <text x="735" y="260" text-anchor="middle" fill="#64748b" font-size="9">OpenAI | Anthropic | Google | Ollama</text>
+
+  <rect x="630" y="280" width="210" height="35" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+  <text x="735" y="302" text-anchor="middle" fill="#34d399" font-size="10" font-weight="600">EventBus (pub/sub)</text>
+
+  <rect x="630" y="325" width="210" height="35" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+  <text x="735" y="347" text-anchor="middle" fill="#f87171" font-size="10" font-weight="600">Redis Persistence</text>
+
+  <!-- Connector between backend services -->
+  <line x1="735" y1="270" x2="735" y2="280" stroke="#334155" stroke-width="1"/>
+  <line x1="735" y1="315" x2="735" y2="325" stroke="#334155" stroke-width="1"/>
+
+  <!-- Connection line backend to docker -->
+  <line x1="450" y1="415" x2="450" y2="445" stroke="#3b82f6" stroke-width="2" stroke-dasharray="6,3"/>
+  <polygon points="445,440 450,450 455,440" fill="#3b82f6"/>
+
+  <!-- ===== KNOWLEDGE SERVICE ===== -->
+  <rect x="640" y="420" width="210" height="55" rx="10" fill="#111827" stroke="#1e3a5f" stroke-width="1.5"/>
+  <text x="745" y="444" text-anchor="middle" fill="#60a5fa" font-size="11" font-weight="600">Knowledge Service</text>
+  <text x="745" y="462" text-anchor="middle" fill="#64748b" font-size="9">ChromaDB RAG</text>
+
+  <!-- Connection knowledge to backend -->
+  <line x1="735" y1="415" x2="735" y2="420" stroke="#334155" stroke-width="1" stroke-dasharray="4,2"/>
+
+  <!-- ===== DOCKER TOOLS LAYER ===== -->
+  <rect x="40" y="450" width="580" height="150" rx="10" fill="#111827" stroke="#1e3a5f" stroke-width="1.5"/>
+  <text x="330" y="475" text-anchor="middle" fill="#60a5fa" font-size="13" font-weight="600" letter-spacing="1.5">DOCKER — SECURITY TOOLS</text>
+
+  <!-- Tool boxes row 1 -->
+  <rect x="60"  y="492" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="105" y="510" text-anchor="middle" fill="#e2e8f0" font-size="9">nmap</text>
+
+  <rect x="158" y="492" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="203" y="510" text-anchor="middle" fill="#e2e8f0" font-size="9">subfinder</text>
+
+  <rect x="256" y="492" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="301" y="510" text-anchor="middle" fill="#e2e8f0" font-size="9">httpx</text>
+
+  <rect x="354" y="492" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="399" y="510" text-anchor="middle" fill="#e2e8f0" font-size="9">nuclei</text>
+
+  <rect x="452" y="492" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="497" y="510" text-anchor="middle" fill="#e2e8f0" font-size="9">nikto</text>
+
+  <!-- Tool boxes row 2 -->
+  <rect x="60"  y="528" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="105" y="546" text-anchor="middle" fill="#e2e8f0" font-size="9">ffuf</text>
+
+  <rect x="158" y="528" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="203" y="546" text-anchor="middle" fill="#e2e8f0" font-size="9">gobuster</text>
+
+  <rect x="256" y="528" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="301" y="546" text-anchor="middle" fill="#e2e8f0" font-size="9">katana</text>
+
+  <rect x="354" y="528" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="399" y="546" text-anchor="middle" fill="#e2e8f0" font-size="9">whatweb</text>
+
+  <rect x="452" y="528" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="497" y="546" text-anchor="middle" fill="#e2e8f0" font-size="9">theHarvester</text>
+
+  <!-- Knowledge service connection to docker layer -->
+  <line x1="640" y1="448" x2="620" y2="448" stroke="#334155" stroke-width="1" stroke-dasharray="4,2"/>
+
+</svg>

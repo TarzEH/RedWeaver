@@ -109,33 +109,9 @@ On a **fresh** Redis volume, the backend seeds a demo admin so you can sign in i
 
 ## Architecture
 
-```
-+---------------------------------------------------------------+
-|                  Frontend (React 18 + TypeScript)              |
-|  Dashboard | Hunt (chat, findings, report) | Sessions | ...   |
-|                      ^ SSE Stream                             |
-+----------------------|----------------------------------------+
-                       |
-+----------------------|----------------------------------------+
-|               Backend (FastAPI + CrewAI)                       |
-|                                                               |
-|  +----------------------------------------------------------+ |
-|  | CrewAI Crew -- sequential tasks, YAML agents + tools      | |
-|  |                                                           | |
-|  | Recon -> Fuzzer -> Crawler / Vuln Scanner / Web Search    | |
-|  |       -> Exploit Analyst -> Report Writer (+ opt. SSH)    | |
-|  +----------------------------------------------------------+ |
-|                                                               |
-|  LLM Factory --- EventBus (pub/sub) --- Redis Persistence     |
-|  OpenAI | Anthropic | Google | Ollama                         |
-+---------------------------------------------------------------+
-                       |
-+----------------------|----------------------------------------+
-|                Docker (Security Tools)                         |
-|  nmap, subfinder, httpx, nuclei, nikto, ffuf                  |
-|  gobuster, katana, whatweb, theHarvester                      |
-+---------------------------------------------------------------+
-```
+<p align="center">
+  <img src="docs/redweaver-architecture.svg" alt="Architecture diagram" width="800" />
+</p>
 
 ### How It Works
 
