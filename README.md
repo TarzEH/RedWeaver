@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/redweaver-banner.svg" alt="RedWeaver" width="800"/>
+  <img src="docs/redweaver-banner.png" alt="RedWeaver" width="800"/>
 </p>
 
 <p align="center">
