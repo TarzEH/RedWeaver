@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RedWeaver — Vulnerability Assessment Report</title>
+<style>
+  :root {
+    --bg-primary: #0a0e17;
+    --bg-secondary: #111827;
+    --bg-card: #1a2332;
+    --bg-card-hover: #1f2b3d;
+    --border: #2d3748;
+    --text-primary: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --accent: #3b82f6;
+    --accent-glow: rgba(59,130,246,0.3);
+    --critical: #ff1744;
+    --high: #ff6d00;
+    --medium: #ffc400;
+    --low: #00c853;
+    --info: #00b0ff;
+    --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    --mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-family: var(--font);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .report-container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 40px 24px;
+  }
+
+  /* Header */
+  .report-header {
+    text-align: center;
+    padding: 48px 0 40px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 40px;
+  }
+  .report-logo {
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, var(--critical), var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 8px;
+  }
+  .report-subtitle {
+    font-size: 18px;
+    color: var(--text-secondary);
+    font-weight: 400;
+  }
+  .report-meta {
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+    margin-top: 20px;
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+  .report-meta span { display: flex; align-items: center; gap: 6px; }
+
+  /* Section */
+  .section { margin-bottom: 40px; }
+  .section-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-title::before {
+    content: '';
+    width: 4px;
+    height: 20px;
+    background: var(--accent);
+    border-radius: 2px;
+  }
+
+  /* Risk badge */
+  .risk-badge {
+    display: inline-block;
+    padding: 8px 24px;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  /* Summary cards */
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 16px;
+    margin: 20px 0;
+  }
+  .summary-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    text-align: center;
+  }
+  .summary-card .count {
+    font-size: 36px;
+    font-weight: 800;
+    line-height: 1;
+  }
+  .summary-card .label {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 6px;
+  }
+
+  /* Executive summary */
+  .exec-summary {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    margin: 16px 0;
+    line-height: 1.8;
+    color: var(--text-secondary);
+  }
+
+  /* Severity chart (pure CSS) */
+  .severity-bar-chart {
+    display: flex;
+    gap: 12px;
+    align-items: flex-end;
+    height: 120px;
+    padding: 0 20px;
+    margin: 20px 0;
+  }
+  .sev-bar-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+  }
+  .sev-bar {
+    width: 100%;
+    max-width: 60px;
+    border-radius: 6px 6px 0 0;
+    min-height: 4px;
+    transition: height 0.3s ease;
+  }
+  .sev-bar-count {
+    font-size: 16px;
+    font-weight: 700;
+  }
+  .sev-bar-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* Tables */
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0;
+  }
+  .data-table th,
+  .data-table td {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  .data-table th {
+    background: var(--bg-card);
+    color: var(--text-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    font-weight: 600;
+  }
+  .data-table tr:hover td {
+    background: var(--bg-card-hover);
+  }
+
+  /* Severity pill */
+  .severity-pill {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  /* Finding card */
+  .finding-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+  .finding-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    cursor: pointer;
+    border-left: 4px solid transparent;
+  }
+  .finding-header:hover { background: var(--bg-card-hover); }
+  .finding-id {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .finding-title {
+    font-weight: 600;
+    flex: 1;
+  }
+  .finding-cvss {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.05);
+  }
+  .finding-body {
+    padding: 0 20px 20px;
+    border-top: 1px solid var(--border);
+  }
+  .finding-field {
+    margin-top: 14px;
+  }
+  .finding-field-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .finding-field-value {
+    color: var(--text-secondary);
+    line-height: 1.7;
+  }
+  .evidence-block {
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 16px;
+    font-family: var(--mono);
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 200px;
+    overflow-y: auto;
+    color: var(--text-secondary);
+  }
+  .cve-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    background: rgba(59,130,246,0.15);
+    color: var(--accent);
+    border-radius: 4px;
+    font-family: var(--mono);
+    font-size: 12px;
+    margin-right: 6px;
+  }
+
+  /* Remediation list */
+  .remediation-item {
+    display: flex;
+    gap: 12px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .remediation-item:last-child { border-bottom: none; }
+  .remediation-priority {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+  }
+
+  /* Technologies pills */
+  .tech-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 12px 0;
+  }
+  .tech-pill {
+    padding: 4px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  /* Footer */
+  .report-footer {
+    text-align: center;
+    padding: 32px 0;
+    border-top: 1px solid var(--border);
+    margin-top: 40px;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+
+  /* Print styles */
+  @media print {
+    body { background: #fff; color: #1a1a1a; font-size: 11px; }
+    .report-container { max-width: 100%; padding: 0; }
+    .report-header { padding: 20px 0; }
+    .report-logo {
+      background: none; -webkit-text-fill-color: #c0392b;
+      color: #c0392b; font-size: 24px;
+    }
+    :root {
+      --bg-card: #f8f9fa; --border: #dee2e6;
+      --text-primary: #1a1a1a; --text-secondary: #495057;
+      --text-muted: #6c757d;
+    }
+    .finding-card, .summary-card, .exec-summary {
+      break-inside: avoid;
+      border: 1px solid #dee2e6;
+    }
+    .severity-bar-chart { height: 80px; }
+  }
+
+  /* Toggle for finding details (pure CSS) */
+  .finding-toggle { display: none; }
+  .finding-toggle:checked ~ .finding-body { display: block; }
+  .finding-toggle:not(:checked) ~ .finding-body { display: none; }
+  .finding-toggle:checked ~ .finding-header .toggle-icon { transform: rotate(90deg); }
+  .toggle-icon {
+    transition: transform 0.2s;
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+<div class="report-container">
+
+  <!-- Header -->
+  <header class="report-header">
+    <div class="report-logo">RedWeaver</div>
+    <div class="report-subtitle">Vulnerability Assessment Report</div>
+    <div class="report-meta">
+      <span>Target: <strong>{{ report.target }}</strong></span>
+      <span>Scope: {{ report.scope or 'Target only' }}</span>
+      <span>Generated: {{ report.generated_at[:19] }}</span>
+    </div>
+  </header>
+
+  <!-- Executive Summary -->
+  <div class="section">
+    <h2 class="section-title">Executive Summary</h2>
+    <div style="text-align:center; margin: 16px 0;">
+      <span class="risk-badge" style="background:{{ risk_color(report.risk_rating) }}22; color:{{ risk_color(report.risk_rating) }}; border: 1px solid {{ risk_color(report.risk_rating) }}44;">
+        Overall Risk: {{ report.risk_rating }}
+      </span>
+    </div>
+    <div class="exec-summary">{{ report.executive_summary }}</div>
+
+    <!-- Severity summary cards -->
+    <div class="summary-grid">
+      {% set severities = [('critical', report.findings_by_severity.get('critical', 0)),
+                           ('high', report.findings_by_severity.get('high', 0)),
+                           ('medium', report.findings_by_severity.get('medium', 0)),
+                           ('low', report.findings_by_severity.get('low', 0)),
+                           ('info', report.findings_by_severity.get('info', 0))] %}
+      {% for sev, count in severities %}
+      <div class="summary-card">
+        <div class="count" style="color:{{ severity_color(sev) }}">{{ count }}</div>
+        <div class="label">{{ sev }}</div>
+      </div>
+      {% endfor %}
+      <div class="summary-card">
+        <div class="count" style="color:var(--accent)">{{ report.findings|length }}</div>
+        <div class="label">Total</div>
+      </div>
+    </div>
+
+    <!-- Severity bar chart -->
+    {% set max_count = [1] %}
+    {% for sev, count in severities %}
+      {% if count > max_count[0] %}{% if max_count.append(count) %}{% endif %}{% endif %}
+    {% endfor %}
+    <div class="severity-bar-chart">
+      {% for sev, count in severities %}
+      <div class="sev-bar-group">
+        <div class="sev-bar-count" style="color:{{ severity_color(sev) }}">{{ count }}</div>
+        <div class="sev-bar" style="background:{{ severity_color(sev) }}; height:{{ (count / max_count[-1] * 100) if max_count[-1] > 0 else 0 }}px;"></div>
+        <div class="sev-bar-label">{{ sev }}</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Service Discovery Overview -->
+  {% if report.discovered_services or report.discovered_technologies %}
+  <div class="section">
+    <h2 class="section-title">Service Discovery Overview</h2>
+
+    {% if report.discovered_technologies %}
+    <h3 style="color:var(--text-secondary); font-size:14px; margin:12px 0 8px;">Detected Technologies</h3>
+    <div class="tech-pills">
+      {% for tech in report.discovered_technologies %}
+      <span class="tech-pill">{{ tech }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if report.discovered_services %}
+    <h3 style="color:var(--text-secondary); font-size:14px; margin:16px 0 8px;">Discovered Services ({{ report.discovered_services|length }})</h3>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Host</th>
+          <th>Port</th>
+          <th>Service</th>
+          <th>Version</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for svc in report.discovered_services %}
+        <tr>
+          <td style="font-family:var(--mono); font-size:13px;">{{ svc.host }}</td>
+          <td>{{ svc.port or '—' }}</td>
+          <td>{{ svc.service or '—' }}</td>
+          <td>{{ svc.version or '—' }}</td>
+          <td>{{ svc.status_code or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- Scope & Methodology -->
+  <div class="section">
+    <h2 class="section-title">Scope &amp; Methodology</h2>
+    <div class="exec-summary">
+      {{ report.methodology }}
+    </div>
+    {% if report.tools_used %}
+    <h3 style="color:var(--text-secondary); font-size:14px; margin:16px 0 8px;">Tools Used</h3>
+    <div class="tech-pills">
+      {% for tool in report.tools_used %}
+      <span class="tech-pill">{{ tool }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if report.agents_executed %}
+    <h3 style="color:var(--text-secondary); font-size:14px; margin:16px 0 8px;">Agents Deployed</h3>
+    <div class="tech-pills">
+      {% for agent in report.agents_executed %}
+      <span class="tech-pill">{{ agent }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Findings Summary Table -->
+  {% if report.findings %}
+  <div class="section">
+    <h2 class="section-title">Findings Summary</h2>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Severity</th>
+          <th>Title</th>
+          <th>CVSS</th>
+          <th>Affected URL</th>
+          <th>Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for f in report.findings %}
+        <tr>
+          <td style="font-family:var(--mono); font-size:12px;">{{ f.id }}</td>
+          <td>
+            <span class="severity-pill" style="background:{{ severity_bg(f.severity) }}; color:{{ severity_color(f.severity) }};">
+              {{ f.severity }}
+            </span>
+          </td>
+          <td>{{ f.title }}</td>
+          <td style="font-family:var(--mono);">{{ f.cvss_score if f.cvss_score else '—' }}</td>
+          <td style="font-family:var(--mono); font-size:12px; max-width:200px; overflow:hidden; text-overflow:ellipsis;">{{ f.affected_url or '—' }}</td>
+          <td>{{ f.agent_source or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <!-- Detailed Findings -->
+  {% if report.findings %}
+  <div class="section">
+    <h2 class="section-title">Detailed Findings</h2>
+    {% for f in report.findings %}
+    <div class="finding-card">
+      <input type="checkbox" class="finding-toggle" id="finding-{{ loop.index }}" {% if loop.index <= 5 %}checked{% endif %}>
+      <label class="finding-header" for="finding-{{ loop.index }}" style="border-left-color:{{ severity_color(f.severity) }};">
+        <span class="toggle-icon">&#9654;</span>
+        <span class="finding-id">{{ f.id }}</span>
+        <span class="severity-pill" style="background:{{ severity_bg(f.severity) }}; color:{{ severity_color(f.severity) }};">
+          {{ f.severity }}
+        </span>
+        <span class="finding-title">{{ f.title }}</span>
+        {% if f.cvss_score %}
+        <span class="finding-cvss" style="color:{{ severity_color(f.severity) }};">CVSS {{ f.cvss_score }}</span>
+        {% endif %}
+      </label>
+      <div class="finding-body">
+        {% if f.description %}
+        <div class="finding-field">
+          <div class="finding-field-label">Description</div>
+          <div class="finding-field-value">{{ f.description }}</div>
+        </div>
+        {% endif %}
+
+        {% if f.affected_url %}
+        <div class="finding-field">
+          <div class="finding-field-label">Affected URL</div>
+          <div class="finding-field-value" style="font-family:var(--mono); font-size:13px;">{{ f.affected_url }}</div>
+        </div>
+        {% endif %}
+
+        {% if f.cve_ids %}
+        <div class="finding-field">
+          <div class="finding-field-label">CVE References</div>
+          <div class="finding-field-value">
+            {% for cve in f.cve_ids %}
+            <span class="cve-tag">{{ cve }}</span>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+
+        {% if f.evidence %}
+        <div class="finding-field">
+          <div class="finding-field-label">Evidence</div>
+          <div class="evidence-block">{{ f.evidence }}</div>
+        </div>
+        {% endif %}
+
+        {% if f.remediation %}
+        <div class="finding-field">
+          <div class="finding-field-label">Remediation</div>
+          <div class="finding-field-value" style="color:var(--low);">{{ f.remediation }}</div>
+        </div>
+        {% endif %}
+
+        {% if f.tool_used %}
+        <div class="finding-field">
+          <div class="finding-field-label">Tool Used</div>
+          <div class="finding-field-value"><span class="tech-pill">{{ f.tool_used }}</span></div>
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- Remediation Priorities -->
+  {% if report.remediation_priorities %}
+  <div class="section">
+    <h2 class="section-title">Remediation Priorities</h2>
+    {% for item in report.remediation_priorities %}
+    <div class="remediation-item">
+      <div class="remediation-priority" style="color:{{ severity_color(item.severity) }}; border-color:{{ severity_color(item.severity) }}33;">
+        {{ loop.index }}
+      </div>
+      <div style="flex:1;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+          <span class="severity-pill" style="background:{{ severity_bg(item.severity) }}; color:{{ severity_color(item.severity) }};">{{ item.severity }}</span>
+          <strong>{{ item.title }}</strong>
+          {% if item.cvss_score %}
+          <span style="font-family:var(--mono); font-size:12px; color:var(--text-muted);">CVSS {{ item.cvss_score }}</span>
+          {% endif %}
+        </div>
+        <div style="color:var(--text-secondary); font-size:13px;">{{ item.remediation }}</div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- No findings -->
+  {% if not report.findings %}
+  <div class="section">
+    <h2 class="section-title">Findings</h2>
+    <div class="exec-summary" style="text-align:center;">
+      No vulnerabilities were identified during this assessment.
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Footer -->
+  <footer class="report-footer">
+    <div style="margin-bottom:8px;">
+      <strong style="background:linear-gradient(135deg, var(--critical), var(--accent)); -webkit-background-clip:text; -webkit-text-fill-color:transparent;">RedWeaver</strong>
+      — AI-Powered Vulnerability Assessment
+    </div>
+    <div>
+      Report ID: {{ report.run_id[:12] }} | Generated: {{ report.generated_at[:19] }} UTC
+    </div>
+    <div style="margin-top:4px;">
+      This report was generated by an automated system. Manual verification of findings is recommended.
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

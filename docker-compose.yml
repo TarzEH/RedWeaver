@@ -1,0 +1,85 @@
+# RedWeaver - Multi-Agent Bug Hunting Framework
+# Frontend (React) + Backend (FastAPI) + Redis (persistence) + Knowledge (RAG)
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  knowledge:
+    build: ./knowledge-service
+    ports:
+      - "8100:8100"
+    volumes:
+      - ./knowledge-base:/data/knowledge:ro
+      - knowledge_model_cache:/root/.cache/chroma
+    environment:
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/health')"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  backend:
+    build: ./backend
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REDIS_URL=redis://redis:6379/0
+      - KNOWLEDGE_SERVICE_URL=http://knowledge:8100
+      - JWT_SECRET=${JWT_SECRET:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - MODEL_PROVIDER=${MODEL_PROVIDER:-}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      redis:
+        condition: service_healthy
+      knowledge:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_BACKEND_URL: ""
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  redis-insight:
+    image: redis/redisinsight:latest
+    ports:
+      - "5541:5540"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  redis_data:
+  knowledge_model_cache:

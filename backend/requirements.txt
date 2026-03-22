@@ -1,0 +1,48 @@
+# RedWeaver backend - multi-agent bug hunting
+fastapi>=0.109.0,<1.0.0
+uvicorn[standard]>=0.27.0,<1.0.0
+python-dotenv>=1.0.0,<2.0.0
+
+# CrewAI (multi-agent orchestration)
+crewai[tools]>=0.108.0
+crewai-tools>=0.33.0
+
+# LangChain LLM providers (for CrewAI)
+langchain-openai>=0.3.0
+langchain-anthropic>=0.3.0
+langchain-google-genai>=2.1.0
+langchain-ollama>=0.3.0
+
+# Anthropic support
+anthropic>=0.40.0
+
+# OpenAI client
+openai>=1.0.0,<2.0.0
+
+# Web search (free, no API key)
+duckduckgo-search>=6.0.0
+
+# Redis persistence
+redis>=5.0.0,<6.0.0
+
+# HTML report rendering
+jinja2>=3.1.0
+
+# HTML parsing (CVE database scraping)
+beautifulsoup4>=4.12.0
+
+# Data validation
+pydantic>=2.0.0
+
+# YAML crew configs (agents.yaml / tasks.yaml)
+pyyaml>=6.0.0
+
+# SSH operations (remote machine access)
+paramiko>=3.5.0
+
+# HTTP client for knowledge microservice
+httpx>=0.27.0
+
+# Authentication
+passlib[bcrypt]>=1.7.4
+python-jose[cryptography]>=3.3.0
