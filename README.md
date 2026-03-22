@@ -110,31 +110,31 @@ On a **fresh** Redis volume, the backend seeds a demo admin so you can sign in i
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                        Frontend (React 18 + TypeScript)           │
-│  Dashboard │ Hunt (chat · findings · in-thread report) │ Sessions │ Knowledge │ Settings │
-│                     ▲ SSE Stream                                  │
-└─────────────────────┼────────────────────────────────────────────┘
-                      │
-┌─────────────────────┼────────────────────────────────────────────┐
-│              Backend (FastAPI + CrewAI)                            │
-│                                                                   │
-│  ┌───────────────────────────────────────────────────────────┐   │
-│  │  CrewAI Crew — sequential tasks, YAML agents + tools      │   │
-│  │                                                            │   │
-│  │  Recon → Fuzzer → … → Crawler / Vuln Scanner / Web Search   │   │
-│  │         → Exploit Analyst → Report Writer (+ optional SSH)   │   │
-│  └───────────────────────────────────────────────────────────┘   │
-│                                                                   │
-│  LLM Factory ─── EventBus (pub/sub) ─── Redis Persistence        │
-│  OpenAI │ Anthropic │ Google │ Ollama                             │
-└───────────────────────────────────────────────────────────────────┘
-                      │
-┌─────────────────────┼────────────────────────────────────────────┐
-│               Docker (Security Tools)                             │
-│  nmap · subfinder · httpx · nuclei · nikto · ffuf                 │
-│  gobuster · katana · whatweb · theHarvester                       │
-└───────────────────────────────────────────────────────────────────┘
++---------------------------------------------------------------+
+|                  Frontend (React 18 + TypeScript)              |
+|  Dashboard | Hunt (chat, findings, report) | Sessions | ...   |
+|                      ^ SSE Stream                             |
++----------------------|----------------------------------------+
+                       |
++----------------------|----------------------------------------+
+|               Backend (FastAPI + CrewAI)                       |
+|                                                               |
+|  +----------------------------------------------------------+ |
+|  | CrewAI Crew -- sequential tasks, YAML agents + tools      | |
+|  |                                                           | |
+|  | Recon -> Fuzzer -> Crawler / Vuln Scanner / Web Search    | |
+|  |       -> Exploit Analyst -> Report Writer (+ opt. SSH)    | |
+|  +----------------------------------------------------------+ |
+|                                                               |
+|  LLM Factory --- EventBus (pub/sub) --- Redis Persistence     |
+|  OpenAI | Anthropic | Google | Ollama                         |
++---------------------------------------------------------------+
+                       |
++----------------------|----------------------------------------+
+|                Docker (Security Tools)                         |
+|  nmap, subfinder, httpx, nuclei, nikto, ffuf                  |
+|  gobuster, katana, whatweb, theHarvester                      |
++---------------------------------------------------------------+
 ```
 
 ### How It Works
