@@ -76,7 +76,7 @@ PNG captures live under `docs/screenshots/`. When updating them, use masked or e
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/<your-org>/RedWeaver.git
+git clone https://github.com/TarzEH/RedWeaver.git
 cd RedWeaver
 
 # 2. Configure API keys
