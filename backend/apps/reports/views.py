@@ -19,8 +19,57 @@ def _risk_rating(sev_counts: dict) -> str:
     return "Informational"
 
 
+def _enrich_from_tools(run: Run):
+    """Derive discovered services / technologies / endpoints from the persisted
+    raw tool outputs (httpx, nmap, whatweb, crawler/fuzzer parsed_result)."""
+    services: list[dict] = []
+    techs: set[str] = set()
+    endpoints = 0
+    for te in run.tool_executions.all():
+        pr = te.parsed_result if isinstance(te.parsed_result, dict) else {}
+        for h in pr.get("alive_hosts") or []:
+            if isinstance(h, dict):
+                techs.update(h.get("tech") or [])
+                services.append({
+                    "host": h.get("url") or h.get("host") or run.target,
+                    "port": h.get("port"),
+                    "service": "http",
+                    "version": h.get("webserver") or "",
+                    "technologies": h.get("tech") or [],
+                    "status_code": h.get("status_code"),
+                })
+        for host in pr.get("hosts") or []:
+            if isinstance(host, dict):
+                ip = host.get("ip") or host.get("host") or run.target
+                for p in host.get("ports") or []:
+                    if isinstance(p, dict):
+                        services.append({
+                            "host": ip, "port": p.get("port"),
+                            "service": p.get("service") or p.get("name") or "",
+                            "version": p.get("version") or "",
+                            "technologies": [], "status_code": None,
+                        })
+        for p in pr.get("ports") or []:
+            if isinstance(p, dict):
+                services.append({
+                    "host": run.target, "port": p.get("port"),
+                    "service": p.get("service") or p.get("name") or "",
+                    "version": p.get("version") or "",
+                    "technologies": [], "status_code": None,
+                })
+        techs.update(pr.get("technologies") or [])
+        if pr.get("technology"):
+            techs.add(pr["technology"])
+        for key in ("urls", "paths", "endpoints", "results", "found", "directories"):
+            v = pr.get(key)
+            if isinstance(v, list):
+                endpoints += len(v)
+    return services, sorted(t for t in techs if t), endpoints
+
+
 def build_report(run: Run) -> dict:
     findings = list(run.findings.all())
+    services, technologies, endpoints = _enrich_from_tools(run)
     sev_counts = Counter(f.severity for f in findings)
     agent_counts = Counter(f.agent_source for f in findings if f.agent_source)
     tools_used = sorted(
@@ -41,9 +90,9 @@ def build_report(run: Run) -> dict:
         "report_markdown": run.report_markdown or "",
         "generated_at": run.completed_at.isoformat() if run.completed_at else run.created_at.isoformat(),
         "risk_rating": _risk_rating(sev_counts),
-        "discovered_services": [],
-        "discovered_technologies": [],
-        "total_endpoints": 0,
+        "discovered_services": services,
+        "discovered_technologies": technologies,
+        "total_endpoints": endpoints,
         "findings_by_agent": dict(agent_counts),
         "agents_executed": agents_executed,
         "tools_used": tools_used,
