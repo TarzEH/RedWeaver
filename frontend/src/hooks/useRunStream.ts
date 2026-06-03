@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
-import { getApiBase } from "../config/theme";
+import { getApiBase, getWsBase } from "../config/theme";
+import { getToken } from "../services/http";
 import { useSSE } from "./useSSE";
 import type { Finding } from "../types/api";
 import type {
@@ -77,8 +78,10 @@ export function useRunStream(runId: string | null, enabled: boolean = true) {
 
   const url = useMemo(() => {
     if (!runId || !enabled) return null;
-    return `${base}/api/runs/${runId}/stream`;
-  }, [base, runId, enabled]);
+    const token = getToken();
+    const q = token ? `?token=${encodeURIComponent(token)}` : "";
+    return `${getWsBase()}/ws/runs/${runId}/stream/${q}`;
+  }, [runId, enabled]);
 
   const thinkingQueueRef = useRef<{ agent: string; token: string }[]>([]);
   const thinkingRafRef = useRef<number | null>(null);

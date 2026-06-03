@@ -14,9 +14,11 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.3.0--beta-00d4aa?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-0.4.0--beta-00d4aa?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License" />
   <img src="https://img.shields.io/badge/python-3.11+-3776ab?style=flat-square" alt="Python" />
+  <img src="https://img.shields.io/badge/django-5.1-092e20?style=flat-square" alt="Django" />
+  <img src="https://img.shields.io/badge/postgres-pgvector-336791?style=flat-square" alt="PostgreSQL" />
   <img src="https://img.shields.io/badge/react-18-61dafb?style=flat-square" alt="React" />
   <img src="https://img.shields.io/badge/docker-required-2496ed?style=flat-square" alt="Docker" />
   <img src="https://img.shields.io/badge/CrewAI-multi--agent-412991?style=flat-square" alt="CrewAI" />
@@ -26,7 +28,9 @@
 
 ## What is RedWeaver?
 
-RedWeaver is an autonomous vulnerability assessment platform that combines LLM reasoning with real security tools. You describe a target, and a team of AI agents collaboratively performs reconnaissance, crawling, fuzzing, vulnerability scanning, exploit analysis, and report generation — all streamed to your browser in real time.
+RedWeaver is an autonomous vulnerability assessment platform that combines LLM reasoning with real security tools. You describe a target, and a team of AI agents collaboratively performs reconnaissance, crawling, fuzzing, vulnerability scanning, exploit analysis, and report generation — all streamed to your browser in real time over WebSocket.
+
+It runs on **Django (DRF + Channels)** with **PostgreSQL as the single system of record**: every run, finding, agent transition, tool execution (including **raw tool output**), reasoning step, and screenshot is persisted and replayable — debuggable through Django Admin and a dedicated "behind the scenes" UI. The knowledge base is a **pgvector RAG** in Postgres.
 
 **Zero tool installation.** Everything runs inside Docker. You only need an LLM API key.
 
@@ -39,10 +43,11 @@ The web UI is a React app (Vite) served behind nginx in Docker. After login you 
 | Area | What you use it for |
 |------|---------------------|
 | **Dashboard** | Hunt stats, severity breakdown, latest findings at a glance |
-| **Hunt** | Chat-driven hunts with live agent stream (SSE), in-thread pentest report, and agent flow panel |
+| **Hunt** | Chat-driven hunts with live agent stream (WebSocket), in-thread pentest report, and agent flow panel |
 | **Findings** | Sortable vulnerability list with severity badges, CVE references, and evidence |
+| **Behind the scenes** | Per-run debug view — live topology, agent timeline, tool executions with **raw output**, screenshots, and the full event log; plus a one-click **OffSec playbook** (per-finding attack steps with commands + MITRE ATT&CK, grounded in the pgvector KB) |
 | **Sessions & Targets** | Workspace-scoped projects, session management, and target tracking |
-| **Knowledge Base** | Searchable methodology library — techniques, commands, and patterns |
+| **Knowledge Base** | Searchable methodology library (pgvector RAG) — techniques, commands, and patterns |
 | **Settings** | Multi-provider LLM configuration (OpenAI, Anthropic, Google, Ollama, Meta) |
 
 ### Screenshots
@@ -94,12 +99,12 @@ The API is exposed at **http://localhost:8001** (host port mapped to the backend
 
 ### Demo login (first boot)
 
-On a **fresh** Redis volume, the backend seeds a demo admin so you can sign in immediately:
+On a **fresh** Postgres volume, the one-shot `migrate` service seeds a demo admin so you can sign in immediately:
 
 | Field | Value |
 |-------|--------|
-| Email | `admin@redweaver.io` |
-| Password | `redweaver` |
+| Email | `admin@redweaver.local` |
+| Password | `admin` |
 
 **Change this password** (or register a new user and delete the demo account) before exposing the app beyond your machine. See [SECURITY.md](SECURITY.md).
 
@@ -118,8 +123,8 @@ On a **fresh** Redis volume, the backend seeds a demo admin so you can sign in i
 1. **You describe a target** — "Scan example.com for vulnerabilities"
 2. **CrewAI builds a crew** — target type (web vs host) and options pick which agents run; tasks chain with shared context
 3. **Tasks run in order, with parallel batches where safe** — after **Recon** completes, **Fuzzer** and **Vuln Scanner** are scheduled as **asynchronous tasks** so CrewAI can run them **in parallel**, then **Crawler** and later steps run when their inputs are ready. Steps that need prior outputs (e.g. exploit analysis after all scans) still wait — correctness comes before wall-clock speed.
-4. **Findings stream in real-time** — SSE pushes every tool call, thought, and finding to the UI
-5. **Report is generated** — the Report Writer produces a **structured Markdown** pentest report (headings, tables, lists, code blocks, callouts), grounded in hunt context and knowledge-base search where configured; the UI can render it in Standard or Enhanced styling
+4. **Findings stream in real-time** — a WebSocket (Django Channels) pushes every tool call, thought, transition, and finding to the UI; all of it is persisted to Postgres and replayed on reconnect
+5. **Report is generated** — the Report Writer produces a **structured Markdown** pentest report (headings, tables, lists, code blocks, callouts), grounded in hunt context and the pgvector knowledge base; the UI can render it in Standard or Enhanced styling. An optional **OffSec playbook** turns the findings into per-finding attack steps with commands and MITRE ATT&CK techniques.
 
 ### Why the graph looks “parallel”
 
@@ -186,11 +191,13 @@ RedWeaver supports multiple LLM providers. Configure via `.env` or the **Setting
 | `OPENAI_API_KEY` | * | OpenAI API key |
 | `ANTHROPIC_API_KEY` | * | Anthropic API key |
 | `GOOGLE_API_KEY` | * | Google Gemini API key |
-| `JWT_SECRET` | **Yes for production** | Stable secret for signing auth tokens (random per boot if unset — sessions reset on restart) |
+| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | Yes | Postgres credentials; Compose composes `DATABASE_URL` from them |
+| `DJANGO_SECRET_KEY` | **Yes for production** | Django secret key |
+| `JWT_SECRET` | No | Secret for signing auth tokens (falls back to `DJANGO_SECRET_KEY` if unset) |
 | `OLLAMA_BASE_URL` | No | Ollama server URL (default: `http://host.docker.internal:11434`) |
-| `REDIS_URL` | No | Redis connection (default: `redis://redis:6379/0` in Compose; host dev default often `redis://localhost:6380/0`) |
-| `KNOWLEDGE_SERVICE_URL` | No | Knowledge RAG API (default in Compose: `http://knowledge:8100`) |
-| `CORS_ORIGINS` | No | Allowed CORS origins (default: `*`) |
+| `REDIS_URL` / `CHANNEL_LAYERS_URL` / `CELERY_BROKER_URL` | No | Redis roles split by DB — `/0` pub/sub, `/1` Channels, `/2` Celery (composed by Compose) |
+| `CSRF_TRUSTED_ORIGINS` / `ALLOWED_HOSTS` | No | Django host/CSRF allow-lists (defaults cover localhost) |
+| `SCREENSHOTS_DIR` | No | Playwright screenshot path under the shared media volume |
 
 > \* At least one LLM provider key is required. Keys can also be set in the Settings UI.
 
@@ -201,20 +208,27 @@ RedWeaver supports multiple LLM providers. Configure via `.env` or the **Setting
 ```
 RedWeaver/
 ├── backend/
-│   └── app/
-│       ├── api/                 # FastAPI routes (chat, stream, runs, reports, settings)
-│       ├── core/                # Config, EventBus, LLM factory, dependency injection
-│       ├── crews/               # CrewAI crews (e.g. bug_hunt: YAML + builder)
-│       ├── domain/              # Domain entities
-│       ├── dto/                 # API request/response shapes
-│       ├── graph/               # Hunt workflow graph (re-exports crew topology)
-│       ├── models/              # Run, huntflow, event payloads
-│       ├── reports/             # Report generation and templates
-│       ├── repositories/        # Redis-persisted data stores
-│       ├── services/            # Hunt execution, chat, keys management
-│       └── tools/               # CrewAI tools + cli/ wrappers
+│   ├── manage.py
+│   ├── entrypoint.sh            # Role dispatch: migrate | web | worker
+│   ├── redweaver/               # Django project: settings/, asgi.py, wsgi.py, celery.py, urls.py
+│   ├── redweaver_engine/        # Framework-agnostic engine (no Django imports)
+│   │   ├── crews/               # CrewAI crews (bug_hunt + offsec)
+│   │   ├── tools/               # CrewAI tools, cli/ wrappers, instrumentation seam
+│   │   ├── reports/             # Report generation and templates
+│   │   ├── clients/             # Outbound HTTP clients
+│   │   └── llm_factory.py       # Multi-provider LLM factory
+│   └── apps/
+│       ├── common/              # TimeStampedUUIDModel, pagination, encrypted field
+│       ├── accounts/            # User (AUTH_USER_MODEL), ApiKeyVault, JWT auth, settings/keys
+│       ├── workspaces/          # Workspace
+│       ├── hunts/               # Session, Target, Run + tasks.py (Celery), offsec_tasks.py, consumers.py
+│       ├── findings/            # Finding (+ confidence/exploitability/CVE)
+│       ├── observability/       # ToolExecution, AgentStep, AgentTransition, EventLog, GraphSnapshot, Screenshot
+│       ├── knowledge/           # pgvector RAG: KbChunk, embeddings, search, ingest_kb
+│       ├── reports/             # Persisted Report
+│       └── agents/              # Thin endpoints over redweaver_engine (tools, topology)
 ├── docs/
-│   ├── ARCHITECTURE.md          # Docker images vs folder layers
+│   ├── ARCHITECTURE.md          # Docker images vs package layers
 │   └── screenshots/             # UI PNGs embedded above under “UI overview”
 ├── frontend/
 │   └── src/
@@ -222,13 +236,14 @@ RedWeaver/
 │       ├── components/          # layout, ui, domain
 │       ├── config/              # Provider/model definitions
 │       ├── contexts/            # Auth, Hunt
-│       ├── features/            # Route-level pages
-│       ├── hooks/               # useSSE, useRunStream
+│       ├── features/            # Route-level pages (incl. debug/)
+│       ├── hooks/               # useSSE (→ WebSocket), useRunStream
 │       ├── services/            # api.ts, http.ts (JWT client)
 │       └── types/               # TypeScript interfaces (API, events)
-├── knowledge-service/           # RAG microservice (Chroma)
-├── docker-compose.yml           # Redis, backend, frontend, knowledge service, Redis Insight
-├── backend/Dockerfile           # Backend with security tools
+├── knowledge-base/              # Markdown methodology library (ingested into pgvector)
+├── knowledge-service/           # Legacy Chroma RAG microservice (HTTP fallback only)
+├── docker-compose.yml           # postgres (pgvector), redis, migrate, web, worker, frontend, redis-insight
+├── backend/Dockerfile           # Backend with security tools + Playwright Chromium
 └── .env.example                 # Environment configuration template
 ```
 
@@ -236,12 +251,14 @@ RedWeaver/
 
 ## Key Design Decisions
 
-- **CrewAI** — hunts are built from YAML agent/task definitions (`app/crews/bug_hunt/`) with a Python `CrewFactory` that wires tools, structured outputs, and `Process.sequential`. Consecutive tasks marked `async_execution` run in **parallel batches** until the next synchronous task (e.g. fuzzer + vuln scanner after recon). The workflow **graph** is dependency-oriented, not a timeline.
-- **Multi-provider LLM factory** — auto-detects available API keys and supports OpenAI, Anthropic, Google Gemini, and Ollama with runtime model selection (Settings or env).
-- **BaseCLITool pattern** — security CLI tools wrap scanners and parsers; execution runs inside the backend container with timeouts.
-- **EventBus** — async pub/sub with per-run queues for streaming; buffers when no SSE client is connected yet.
-- **Redis persistence** — runs, findings, graph state, and sessions survive container restarts.
-- **Knowledge service** — optional Chroma-backed RAG over `knowledge-base/`; agents call `knowledge_search` for methodology (e.g. reporting). Compose wires `KNOWLEDGE_SERVICE_URL` to the knowledge container.
+- **Django + Postgres system of record** — Django (DRF + Channels) serves the API and WebSocket; **PostgreSQL holds all state** (runs, findings, observability, KB vectors). Redis is transport only (Channels layer + Celery broker + pub/sub).
+- **Framework-agnostic engine** — the CrewAI crews, tools, reports, and LLM factory live in `redweaver_engine/` with zero Django imports, wired to persistence through a pluggable instrumentation seam so the engine stays importable and testable on its own.
+- **Out-of-process execution** — `crew.kickoff()` runs in a **Celery worker**, not the ASGI loop, so long hunts and synchronous ORM writes never block the web server.
+- **CrewAI** — hunts are built from YAML agent/task definitions (`redweaver_engine/crews/bug_hunt/`) with a `CrewFactory` that wires tools, structured outputs, and `Process.sequential`. Consecutive `async_execution` tasks run in **parallel batches** (e.g. fuzzer + vuln scanner after recon). The workflow **graph** is dependency-oriented, not a timeline.
+- **End-to-end observability** — every tool execution (with **raw stdout/stderr**), agent step, transition, screenshot, and event is persisted and replayable via Django Admin and the `/debug/<run_id>` UI.
+- **pgvector RAG** — the knowledge base is embedded into Postgres (`text-embedding-3-small`, 1536-dim) and queried with cosine distance; the legacy Chroma microservice remains only as a fallback.
+- **OffSec playbook** — an offensive-security agent turns findings into per-finding attack steps (commands + MITRE ATT&CK), grounded in the pgvector KB.
+- **Multi-provider LLM factory** — auto-detects available keys (OpenAI, Anthropic, Google Gemini, Ollama) with runtime model selection (Settings UI or env).
 - **Markdown-first report** — the Report Writer outputs structured Markdown; the React report view renders it with typography and callouts, plus an optional **Enhanced** reading mode.
 
 ---
@@ -249,10 +266,13 @@ RedWeaver/
 ## Development
 
 ```bash
-# Backend (requires Python 3.11+)
+# Backend (requires Python 3.11+, a running Postgres + Redis)
 cd backend
 pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+python manage.py migrate
+python manage.py ingest_kb                 # embed the knowledge base into pgvector
+daphne redweaver.asgi:application          # ASGI: DRF + Channels
+celery -A redweaver worker                 # in a second shell — runs the hunts
 
 # Frontend (requires Node 20+)
 cd frontend
@@ -260,7 +280,7 @@ npm install
 npm run dev
 ```
 
-Or use Docker for everything:
+Or use Docker for everything (recommended — brings up Postgres, Redis, web, worker, and the frontend):
 
 ```bash
 docker compose up --build

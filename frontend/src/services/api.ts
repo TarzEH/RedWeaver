@@ -66,6 +66,63 @@ export interface HuntDetail extends HuntResponse {
   error_message: string;
 }
 
+/* ── Observability / behind-the-scenes debug types ── */
+
+export interface Paginated<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
+export interface ToolExecutionRow {
+  id: string;
+  agent_name: string;
+  tool_name: string;
+  sequence: number;
+  command_str: string;
+  argv: string[];
+  raw_stdout: string;
+  raw_stderr: string;
+  exit_code: number | null;
+  parsed_result: unknown;
+  status: string;
+  duration_ms: number | null;
+  started_at: string | null;
+}
+
+export interface AgentStepRow {
+  id: string;
+  agent_name: string;
+  sequence: number;
+  step_type: string;
+  from_agent: string;
+  to_agent: string;
+  reasoning_text: string;
+  output_summary: string;
+  confidence: number | null;
+}
+
+export interface EventLogRow {
+  id: string;
+  sequence: number;
+  event_type: string;
+  agent_name: string;
+  timestamp: string;
+  payload: Record<string, unknown>;
+}
+
+export interface ScreenshotRow {
+  id: string;
+  agent_name: string;
+  tool_name: string;
+  url: string;
+  image_url: string | null;
+  page_title: string;
+  http_status: number | null;
+  taken_at: string;
+}
+
 /* ── API Client ── */
 
 export const api = {
@@ -78,6 +135,10 @@ export const api = {
       request<{ findings: Finding[] }>(`/api/runs/${id}/findings`).then(
         (d) => d.findings || (d as unknown as Finding[]) || [],
       ),
+    offsecStart: (id: string) =>
+      request<{ status: string }>(`/api/runs/${id}/offsec`, { method: "POST" }),
+    offsecGet: (id: string) =>
+      request<{ status: string; markdown: string }>(`/api/runs/${id}/offsec`),
   },
 
   chat: {
@@ -186,5 +247,19 @@ export const api = {
         "/api/knowledge/query",
         { method: "POST", body: JSON.stringify(body) },
       ),
+  },
+
+  /* Behind-the-scenes observability (the debug surface) */
+  debug: {
+    toolExecutions: (runId: string) =>
+      request<Paginated<ToolExecutionRow>>(`/api/runs/${runId}/tool-executions`),
+    agentSteps: (runId: string) =>
+      request<Paginated<AgentStepRow>>(`/api/runs/${runId}/agent-steps`),
+    events: (runId: string, after?: number) =>
+      request<Paginated<EventLogRow>>(
+        `/api/runs/${runId}/events${after ? `?after=${after}` : ""}`,
+      ),
+    screenshots: (runId: string) =>
+      request<Paginated<ScreenshotRow>>(`/api/runs/${runId}/screenshots`),
   },
 };

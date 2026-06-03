@@ -42,6 +42,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Hard session expiry (refresh failed) -> drop to login instead of empty UI.
+  useEffect(() => {
+    const onExpired = () => {
+      clearTokens();
+      setUser(null);
+    };
+    window.addEventListener("rw:auth-expired", onExpired);
+    return () => window.removeEventListener("rw:auth-expired", onExpired);
+  }, []);
+
   const login = async (email: string, password: string) => {
     const data = await apiFetch<AuthResponse>("/api/auth/login", {
       method: "POST",

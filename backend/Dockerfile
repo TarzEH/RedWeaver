@@ -53,17 +53,28 @@ RUN mkdir -p /usr/share/wordlists/dirb \
     && wget -q "https://raw.githubusercontent.com/v0re/dirb/master/wordlists/common.txt" \
        -O /usr/share/wordlists/dirb/common.txt 2>/dev/null || true
 
-# Python dependencies (cached when only app/ changes)
+# Python dependencies (cached when only app code changes)
 FROM tools AS deps
 WORKDIR /app
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# Headless Chromium + its OS libraries for the screenshot tool.
+RUN playwright install --with-deps chromium
 
-# Application code
+# Application code (Django project + apps + framework-agnostic engine)
 FROM deps AS runtime
-COPY app/ ./app/
+COPY redweaver/ ./redweaver/
+COPY redweaver_engine/ ./redweaver_engine/
+COPY apps/ ./apps/
+COPY manage.py entrypoint.sh ./
+RUN chmod +x /app/entrypoint.sh \
+    && mkdir -p /app/media/screenshots /app/staticfiles
 
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    DJANGO_SETTINGS_MODULE=redweaver.settings \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["web"]

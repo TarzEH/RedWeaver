@@ -61,6 +61,11 @@ export async function apiFetch<T = unknown>(
       return parseJsonBody<T>(retry);
     }
     clearTokens();
+    // Session truly expired (refresh failed) — tell the app to redirect to
+    // login instead of letting components silently render empty data.
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("rw:auth-expired"));
+    }
     throw new ApiError(401, "Unauthorized");
   }
 
