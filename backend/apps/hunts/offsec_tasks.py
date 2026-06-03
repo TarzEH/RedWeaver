@@ -74,87 +74,129 @@ def generate_offsec_playbook(self, run_id: str) -> None:
             publish(str(run.id), "offsec_error", {"error": str(exc)})
 
 
+import os as _os
+import httpx as _httpx
+from concurrent.futures import ThreadPoolExecutor as _Pool
+
+_KB_URL = _os.environ.get("KNOWLEDGE_SERVICE_URL", "http://knowledge:8100").rstrip("/")
+
+# Map a finding to the most relevant KB methodology queries (so we pull the
+# right attack technique + commands, not generic chunks).
+_KB_MAP = [
+    (("ssh",), ["SSH password attack hydra brute force"]),
+    (("ftp",), ["FTP password attack hydra"]),
+    (("rdp",), ["RDP password attack hydra"]),
+    (("smb", "netbios"), ["SMB enumeration attack", "service enumeration SMB"]),
+    (("sql",), ["sql injection sqlmap exploitation"]),
+    (("xss",), ["cross site scripting payload"]),
+    (("lfi", "inclusion", "traversal", "path"), ["directory traversal path traversal", "local file inclusion exploitation"]),
+    (("upload",), ["file upload attack web shell"]),
+    (("apache", "http", "nginx", "web", "cgi", "userdir"),
+     ["web application attacks", "directory traversal path traversal", "command injection web"]),
+    (("sip", "voip", "sccp", "rtp"), ["service enumeration network services"]),
+    (("port", "service", "open tcp"), ["service enumeration", "port scanning enumeration"]),
+]
+
+
+def _kb_terms_for(finding: dict) -> list:
+    t = (finding.get("title") or "").lower()
+    terms: list = []
+    for keys, qs in _KB_MAP:
+        if any(k in t for k in keys):
+            terms += qs
+    if finding.get("cve_ids"):
+        terms.append("finding and using public exploits metasploit")
+    if not terms:
+        terms.append(f"{t} exploitation")
+    # dedup, keep order, cap 2 per finding
+    return list(dict.fromkeys(terms))[:2]
+
+
+def _kb_query(q: str, top_k: int = 3) -> list:
+    try:
+        r = _httpx.post(f"{_KB_URL}/query", json={"query": q, "top_k": top_k}, timeout=15)
+        # keep only relevant hits (chroma returns negative scores for poor matches)
+        return [x for x in r.json().get("results", []) if (x.get("relevance_score") or 0) > 0.05]
+    except Exception:
+        return []
+
+
 def gather_research(registry, target: str, findings: list) -> str:
-    """Pre-fetch grounding for the playbook IN PARALLEL: knowledge base
-    (methodology), public web (exploits/PoCs), and CVE details. Returns a
-    Markdown block injected into the agent prompt so recommendations cite
-    real sources instead of relying on the model's own knowledge."""
-    import os
-    from concurrent.futures import ThreadPoolExecutor
-
-    import httpx
-
-    kb_url = os.environ.get("KNOWLEDGE_SERVICE_URL", "http://knowledge:8100").rstrip("/")
+    """DEEP per-finding research IN PARALLEL: for each finding map to the right
+    KB attack methodology (commands), pull CVE details + a public PoC, and build
+    a per-finding dossier the agent grounds its attack plan on. Plus shared
+    privesc/post-ex methodology from the KB."""
     web = registry.get_tool("web_search")
     cve_tool = registry.get_tool("cvedetails_lookup")
 
-    cves = sorted({c for f in findings for c in (f.get("cve_ids") or []) if c})
-    titles = [f.get("title", "") for f in findings if f.get("title")][:8]
-    # Command/technique-focused queries so the KB returns runnable commands.
-    kb_queries = [
-        f"{target} exploitation commands",
-        "privilege escalation linux commands",
-        "service enumeration commands",
-    ]
-    for t in titles:
-        kb_queries.append(f"{t} exploitation commands")
-    for c in cves[:4]:
-        kb_queries.append(f"{c} exploit command")
-    kb_queries = list(dict.fromkeys(kb_queries))[:12]
-    web_queries = [f"{c} exploit proof of concept" for c in cves[:5]]
-
-    def kb(q):
-        try:
-            # Knowledge service exposes POST /query (NOT /api/knowledge/query).
-            r = httpx.post(f"{kb_url}/query",
-                           json={"query": q, "top_k": 3}, timeout=15)
-            return ("kb", q, r.json().get("results", []))
-        except Exception:
-            return ("kb", q, [])
-
-    def wq(q):
+    def web_q(q):
         try:
             res = web.run(q) if web else {}
-            return ("web", q, res.get("results", []) if isinstance(res, dict) else [])
+            return res.get("results", []) if isinstance(res, dict) else []
         except Exception:
-            return ("web", q, [])
+            return []
 
-    def cq(c):
+    def cve_q(c):
         try:
-            return ("cve", c, cve_tool.run(c) if cve_tool else {})
+            return cve_tool.run(c) if cve_tool else {}
         except Exception:
-            return ("cve", c, {})
+            return {}
 
-    jobs = [(kb, q) for q in kb_queries] + [(wq, q) for q in web_queries] + [(cq, c) for c in cves[:5]]
-    results = []
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        for fut in [ex.submit(fn, arg) for fn, arg in jobs]:
-            try:
-                results.append(fut.result(timeout=30))
-            except Exception:
-                pass
+    def research_one(f: dict):
+        kb_hits = []
+        for q in _kb_terms_for(f):
+            for r in _kb_query(q, top_k=2)[:2]:
+                kb_hits.append((r.get("file", "kb"), (r.get("content") or "")[:1300]))
+        cves = (f.get("cve_ids") or [])[:2]
+        cve_info = {c: cve_q(c) for c in cves}
+        web_hits = []
+        for c in cves:
+            web_hits += web_q(f"{c} exploit proof of concept github")[:2]
+        if not cves:
+            web_hits += web_q(f"{f.get('title', '')} {target} exploit")[:1]
+        return (f, kb_hits, cve_info, web_hits)
 
-    kb_parts, web_parts, cve_parts = [], [], []
-    for kind, q, data in results:
-        if kind == "kb" and data:
-            kb_parts.append(f"**KB: {q}**")
-            for it in data[:3]:
-                if isinstance(it, dict):
-                    kb_parts.append(f"- _{it.get('file', 'kb')}_:\n{(it.get('content') or '')[:900]}")
-        elif kind == "web" and data:
-            web_parts.append(f"**Web: {q}**")
-            for it in data[:3]:
-                if isinstance(it, dict):
-                    snip = (it.get("snippet") or it.get("body") or it.get("description") or "")[:200]
-                    web_parts.append(f"- [{it.get('title', 'link')}]({it.get('url', '')}) — {snip}")
-        elif kind == "cve" and data:
-            cve_parts.append(f"**{q}**: {str(data)[:450]}")
+    # rank findings by severity so the most important get researched first/most
+    order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+    ranked = sorted(findings, key=lambda f: order.get((f.get("severity") or "info").lower(), 5))[:8]
 
-    blocks = []
-    if kb_parts:
-        blocks.append("### Knowledge base (methodology)\n" + "\n".join(kb_parts))
-    if web_parts:
-        blocks.append("### Public web research\n" + "\n".join(web_parts))
-    if cve_parts:
-        blocks.append("### CVE details\n" + "\n".join(cve_parts))
-    return "\n\n".join(blocks) if blocks else "(no external research results returned)"
+    with _Pool(max_workers=8) as ex:
+        results = list(ex.map(research_one, ranked))
+    # shared methodology (run in parallel too)
+    with _Pool(max_workers=4) as ex:
+        gen = list(ex.map(lambda q: (q, _kb_query(q, top_k=2)),
+                          ["linux privilege escalation methodology",
+                           "post exploitation credential harvesting"]))
+
+    blocks: list = ["## Shared methodology (from KB)"]
+    seen = set()
+    for _q, hits in gen:
+        for r in hits[:1]:
+            key = r.get("file")
+            if key in seen:
+                continue
+            seen.add(key)
+            blocks.append(f"- _{r.get('file')}_:\n{(r.get('content') or '')[:900]}")
+
+    blocks.append("\n## Per-finding research dossier")
+    for f, kb_hits, cve_info, web_hits in results:
+        sev = (f.get("severity") or "info").upper()
+        blocks.append(
+            f"\n### [{sev}] {f.get('title', '')}  (affected: {f.get('affected_url') or target})"
+        )
+        for file, content in kb_hits:
+            k = (file, content[:50])
+            if k in seen:
+                continue
+            seen.add(k)
+            blocks.append(f"- **KB technique** _{file}_:\n{content}")
+        for c, info in cve_info.items():
+            if info:
+                blocks.append(f"- **CVE {c}**: {str(info)[:400]}")
+        for w in web_hits[:2]:
+            if isinstance(w, dict):
+                snip = (w.get("snippet") or w.get("body") or w.get("description") or "")[:180]
+                blocks.append(f"- **Public** [{w.get('title', 'exploit')}]({w.get('url', '')}): {snip}")
+
+    out = "\n".join(blocks)
+    return out[:18000] if out.strip() else "(no external research results returned)"
