@@ -216,6 +216,7 @@ __marimo__/
 CLAUDE.md
 AGENTS.md
 .agents/
+.codex/
 
 # Local env variants
 .env.local
