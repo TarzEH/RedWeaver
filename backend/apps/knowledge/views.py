@@ -27,7 +27,7 @@ def knowledge_health(request):
 def knowledge_query(request):
     try:
         r = httpx.post(
-            f"{BASE}/api/knowledge/query", json=request.data or {}, timeout=30
+            f"{BASE}/query", json=request.data or {}, timeout=30
         )
         return Response(r.json(), status=r.status_code)
     except Exception as exc:

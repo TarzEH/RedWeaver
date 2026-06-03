@@ -121,8 +121,8 @@ export function DebugPage() {
             </p>
           )}
           {offsecMd ? (
-            <div className="bg-slate-900/60 rounded-lg p-4 border border-slate-800">
-              <MarkdownRenderer content={offsecMd} variant="enhanced" />
+            <div className="bg-slate-900/60 rounded-lg p-4 border border-slate-800 max-h-[72vh] overflow-y-auto">
+              <MarkdownRenderer content={offsecMd} variant="enhanced" className="offsecPlaybook" />
             </div>
           ) : (
             !busy && <p className="text-slate-500 text-sm">No playbook yet — click Generate.</p>

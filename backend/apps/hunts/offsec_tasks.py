@@ -89,13 +89,24 @@ def gather_research(registry, target: str, findings: list) -> str:
     cve_tool = registry.get_tool("cvedetails_lookup")
 
     cves = sorted({c for f in findings for c in (f.get("cve_ids") or []) if c})
-    titles = [f.get("title", "") for f in findings if f.get("title")][:6]
-    kb_queries = [f"exploitation methodology {target}", "privilege escalation linux"] + titles
+    titles = [f.get("title", "") for f in findings if f.get("title")][:8]
+    # Command/technique-focused queries so the KB returns runnable commands.
+    kb_queries = [
+        f"{target} exploitation commands",
+        "privilege escalation linux commands",
+        "service enumeration commands",
+    ]
+    for t in titles:
+        kb_queries.append(f"{t} exploitation commands")
+    for c in cves[:4]:
+        kb_queries.append(f"{c} exploit command")
+    kb_queries = list(dict.fromkeys(kb_queries))[:12]
     web_queries = [f"{c} exploit proof of concept" for c in cves[:5]]
 
     def kb(q):
         try:
-            r = httpx.post(f"{kb_url}/api/knowledge/query",
+            # Knowledge service exposes POST /query (NOT /api/knowledge/query).
+            r = httpx.post(f"{kb_url}/query",
                            json={"query": q, "top_k": 3}, timeout=15)
             return ("kb", q, r.json().get("results", []))
         except Exception:
@@ -129,7 +140,7 @@ def gather_research(registry, target: str, findings: list) -> str:
             kb_parts.append(f"**KB: {q}**")
             for it in data[:3]:
                 if isinstance(it, dict):
-                    kb_parts.append(f"- _{it.get('file', 'kb')}_: {(it.get('content') or '')[:450]}")
+                    kb_parts.append(f"- _{it.get('file', 'kb')}_:\n{(it.get('content') or '')[:900]}")
         elif kind == "web" and data:
             web_parts.append(f"**Web: {q}**")
             for it in data[:3]:
