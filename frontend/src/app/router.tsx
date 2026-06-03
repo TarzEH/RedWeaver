@@ -5,6 +5,7 @@ import { HuntPage } from "../features/hunt/HuntPage";
 import { SessionsPage } from "../features/sessions/SessionsPage";
 import { KnowledgePage } from "../features/knowledge/KnowledgePage";
 import { SettingsPage } from "../features/settings/SettingsPage";
+import { DebugPage } from "../features/debug/DebugPage";
 
 export function AppRouter() {
   return (
@@ -14,6 +15,7 @@ export function AppRouter() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/hunt" element={<HuntPage />} />
         <Route path="/hunt/:runId" element={<HuntPage />} />
+        <Route path="/debug/:runId" element={<DebugPage />} />
         <Route path="/sessions" element={<SessionsPage />} />
         <Route path="/knowledge" element={<KnowledgePage />} />
         <Route path="/settings" element={<SettingsPage />} />
