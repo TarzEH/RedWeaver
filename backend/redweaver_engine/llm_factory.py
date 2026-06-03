@@ -173,25 +173,25 @@ class LLMFactory:
     def _resolve_openai_key(keys: dict) -> str | None:
         from_env = os.environ.get("OPENAI_API_KEY", "").strip()
         from_ui = (keys.get("openai_api_key") or "").strip()
-        return from_env or from_ui or None
+        return from_ui or from_env or None
 
     @staticmethod
     def _resolve_anthropic_key(keys: dict) -> str | None:
         from_env = os.environ.get("ANTHROPIC_API_KEY", "").strip()
         from_ui = (keys.get("anthropic_api_key") or "").strip()
-        return from_env or from_ui or None
+        return from_ui or from_env or None
 
     @staticmethod
     def _resolve_google_key(keys: dict) -> str | None:
         from_env = os.environ.get("GOOGLE_API_KEY", "").strip()
         from_ui = (keys.get("google_api_key") or "").strip()
-        return from_env or from_ui or None
+        return from_ui or from_env or None
 
     @staticmethod
     def _resolve_ollama_url(keys: dict) -> str | None:
         from_env = os.environ.get("OLLAMA_BASE_URL", "").strip()
         from_ui = (keys.get("ollama_base_url") or "").strip()
-        return from_env or from_ui or None
+        return from_ui or from_env or None
 
     # ------------------------------------------------------------------
     # CrewAI LLM support

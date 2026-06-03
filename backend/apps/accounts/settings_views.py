@@ -80,11 +80,56 @@ class SettingsKeysView(APIView):
         return self.get(request)
 
 
+_OPENAI_CHAT_PREFIXES = ("gpt-", "o1", "o3", "o4", "chatgpt")
+
+
+def _live_models(provider: str, keys: dict) -> list[str]:
+    """Fetch the real model list from the provider using the resolved key."""
+    from redweaver_engine.llm_factory import LLMFactory
+
+    if provider == "openai":
+        key = LLMFactory._resolve_openai_key(keys)
+        if not key:
+            return []
+        from openai import OpenAI
+
+        ids = [m.id for m in OpenAI(api_key=key, timeout=10).models.list().data]
+        chat = [
+            i for i in ids
+            if i.startswith(_OPENAI_CHAT_PREFIXES)
+            and not any(x in i for x in ("instruct", "audio", "realtime", "transcribe", "tts", "search"))
+        ]
+        return sorted(chat)
+    if provider == "anthropic":
+        key = LLMFactory._resolve_anthropic_key(keys)
+        if not key:
+            return []
+        from anthropic import Anthropic
+
+        return [m.id for m in Anthropic(api_key=key, timeout=10).models.list().data]
+    return []
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def provider_models(request, provider):
-    models = PROVIDER_MODELS.get(provider.lower(), [])
-    return Response({"models": [{"id": m, "name": m} for m in models]})
+    """List models for a provider — fetched live from the provider API
+    (using the caller's key, UI vault first), with a curated fallback."""
+    provider = provider.lower()
+    from apps.accounts.keys import keys_provider_for_user
+
+    keys = keys_provider_for_user(request.user).get_all()
+    source = "live"
+    try:
+        models = _live_models(provider, keys)
+    except Exception:
+        models = []
+    if not models:
+        models = PROVIDER_MODELS.get(provider, [])
+        source = "fallback"
+    return Response(
+        {"models": [{"id": m, "name": m} for m in models], "source": source}
+    )
 
 
 @api_view(["GET"])
