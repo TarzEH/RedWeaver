@@ -25,9 +25,10 @@ celery>=5.4
 django-celery-results>=2.5
 
 # ----------------------------------------------------------------------------
-# PostgreSQL driver (system of record)
+# PostgreSQL driver (system of record) + pgvector (KB RAG embeddings)
 # ----------------------------------------------------------------------------
 psycopg[binary]>=3.2
+pgvector>=0.3.6
 
 # ----------------------------------------------------------------------------
 # Static serving (Django admin + DRF browsable API) inside the ASGI process

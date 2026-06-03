@@ -26,6 +26,8 @@ case "$ROLE" in
     python manage.py migrate --noinput
     python manage.py collectstatic --noinput
     python manage.py seed_admin || true
+    # Ingest the KB into pgvector (no-op if empty/no key; re-run after key set).
+    python manage.py ingest_kb || true
     echo "[entrypoint] migrate role complete"
     ;;
   web)

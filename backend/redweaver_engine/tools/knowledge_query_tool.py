@@ -60,7 +60,21 @@ class KnowledgeTool(BaseTool):
         category: str = "",
         top_k: int = 5,
     ) -> str:
-        """Query the knowledge service API."""
+        """Query the KB — Postgres pgvector RAG first, HTTP service as fallback."""
+        k = min(max(top_k, 1), 20)
+        # Primary: Postgres pgvector RAG (registered by Django at startup).
+        try:
+            from redweaver_engine.tools import instrumentation as _instr
+
+            results = _instr.kb_search(query, k)
+            if results is not None:
+                return json.dumps({
+                    "status": "success", "query": query,
+                    "results_count": len(results), "results": results,
+                })
+        except Exception:
+            pass
+        # Fallback: standalone knowledge microservice.
         try:
             import httpx
 

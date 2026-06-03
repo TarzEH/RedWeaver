@@ -30,7 +30,7 @@ x-backend-env: &backend_env
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-redweaver}
       POSTGRES_USER: ${POSTGRES_USER:-redweaver}
@@ -82,6 +82,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/app/data
+      - ./knowledge-base:/app/knowledge-base:ro
       - static_data:/app/staticfiles
       - screenshots_data:/app/media/screenshots
     depends_on:
@@ -101,6 +102,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/app/data
+      - ./knowledge-base:/app/knowledge-base:ro
       - static_data:/app/staticfiles
       - screenshots_data:/app/media/screenshots
     depends_on:
@@ -125,6 +127,7 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/app/data
+      - ./knowledge-base:/app/knowledge-base:ro
       - screenshots_data:/app/media/screenshots
     depends_on:
       postgres:

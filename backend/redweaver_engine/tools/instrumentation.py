@@ -89,8 +89,11 @@ def pop_cli_raw() -> Optional[CLIRaw]:
 ToolRecorder = Callable[[dict], Any]  # receives a tool-execution payload dict
 EventPublisher = Callable[..., Any]   # publish(run_id, event_type, data, agent=)
 
+KbSearcher = Callable[[str, int], Any]  # kb_search(query, top_k) -> list[dict]
+
 _tool_recorder: Optional[ToolRecorder] = None
 _event_publisher: Optional[EventPublisher] = None
+_kb_searcher: Optional[KbSearcher] = None
 
 
 def set_tool_recorder(fn: Optional[ToolRecorder]) -> None:
@@ -101,6 +104,22 @@ def set_tool_recorder(fn: Optional[ToolRecorder]) -> None:
 def set_event_publisher(fn: Optional[EventPublisher]) -> None:
     global _event_publisher
     _event_publisher = fn
+
+
+def set_kb_searcher(fn: Optional[KbSearcher]) -> None:
+    """Django registers the Postgres pgvector kb_search here."""
+    global _kb_searcher
+    _kb_searcher = fn
+
+
+def kb_search(query: str, top_k: int = 5):
+    """Query the KB via the registered pgvector searcher (None if unset)."""
+    if _kb_searcher is None:
+        return None
+    try:
+        return _kb_searcher(query, top_k)
+    except Exception:
+        return None
 
 
 def record_tool_execution(payload: dict) -> Any:

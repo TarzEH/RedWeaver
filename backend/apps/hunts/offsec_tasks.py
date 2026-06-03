@@ -113,10 +113,10 @@ def _kb_terms_for(finding: dict) -> list:
 
 
 def _kb_query(q: str, top_k: int = 3) -> list:
+    # Fast/accurate retrieval straight from the Postgres pgvector RAG (no HTTP).
     try:
-        r = _httpx.post(f"{_KB_URL}/query", json={"query": q, "top_k": top_k}, timeout=15)
-        # keep only relevant hits (chroma returns negative scores for poor matches)
-        return [x for x in r.json().get("results", []) if (x.get("relevance_score") or 0) > 0.05]
+        from apps.knowledge.search import kb_search
+        return kb_search(q, top_k=top_k, min_score=0.05)
     except Exception:
         return []
 

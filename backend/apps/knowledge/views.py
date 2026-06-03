@@ -1,34 +1,38 @@
-"""Knowledge endpoints — proxy to the knowledge microservice."""
-import httpx
-from django.conf import settings
+"""Knowledge endpoints — backed by the Postgres pgvector RAG."""
+from django.db.models import Count
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-BASE = settings.KNOWLEDGE_SERVICE_URL.rstrip("/")
+from .models import KbChunk
+from .search import kb_search
 
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def knowledge_health(request):
-    try:
-        r = httpx.get(f"{BASE}/health", timeout=10)
-        return Response(r.json(), status=r.status_code)
-    except Exception as exc:
-        return Response(
-            {"status": "unreachable", "documents_indexed": 0,
-             "files_indexed": 0, "error": str(exc)},
-            status=503,
-        )
+    chunks = KbChunk.objects.count()
+    files = KbChunk.objects.values("file").distinct().count()
+    return Response({
+        "status": "ok" if chunks else "empty",
+        "backend": "postgres+pgvector",
+        "documents_indexed": chunks,
+        "files_indexed": files,
+    })
 
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def knowledge_query(request):
-    try:
-        r = httpx.post(
-            f"{BASE}/query", json=request.data or {}, timeout=30
-        )
-        return Response(r.json(), status=r.status_code)
-    except Exception as exc:
-        return Response({"results": [], "error": str(exc)}, status=503)
+    data = request.data or {}
+    query = data.get("query", "")
+    top_k = int(data.get("top_k", 5) or 5)
+    if not query:
+        return Response({"results": [], "error": "query required"}, status=400)
+    results = kb_search(query, top_k=top_k)
+    return Response({
+        "status": "success",
+        "query": query,
+        "results_count": len(results),
+        "results": results,
+    })
