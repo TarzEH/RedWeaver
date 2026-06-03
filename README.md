@@ -74,6 +74,10 @@ PNG captures live under `docs/screenshots/`. When updating them, use masked or e
   <img src="docs/screenshots/rw-settings.png" alt="Settings" width="720" /><br/>
   <sub>Settings — multi-provider LLM configuration</sub>
 </p>
+<p align="center">
+  <img src="docs/screenshots/rw-debug.png" alt="Behind the scenes" width="720" /><br/>
+  <sub>Behind the scenes — per-run debug: tool executions with raw output, agent steps, screenshots, event log, and the OffSec playbook</sub>
+</p>
 
 ---
 
