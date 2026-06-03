@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "RedWeaver",
+  "project_id": "ae036a2d-37d3-42e2-9316-e5f33f879083"
+}
