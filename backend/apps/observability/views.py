@@ -1,6 +1,8 @@
 """Read-only observability endpoints (the behind-the-scenes debug API)."""
 from rest_framework import generics
 
+from apps.common.pagination import DefaultPagination
+
 from .models import (
     AgentStep,
     AgentTransition,
@@ -22,6 +24,7 @@ from .serializers import (
 class _RunScopedList(generics.ListAPIView):
     model = None
     ordering = ("sequence",)
+    pagination_class = DefaultPagination
 
     def get_queryset(self):
         return self.model.objects.filter(

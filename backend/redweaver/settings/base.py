@@ -152,8 +152,8 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
-    "DEFAULT_PAGINATION_CLASS": "apps.common.pagination.DefaultPagination",
-    "PAGE_SIZE": 50,
+    # No global pagination: legacy frontend list endpoints return plain arrays.
+    # Observability/debug viewsets opt in to pagination explicitly.
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_FILTER_BACKENDS": (
         "rest_framework.filters.SearchFilter",
@@ -170,8 +170,9 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(
         days=env.int("JWT_REFRESH_DAYS", default=7)
     ),
-    # Keep token compatibility with the legacy JWT_SECRET if provided.
-    "SIGNING_KEY": env("JWT_SECRET", default=SECRET_KEY),
+    # Keep token compatibility with the legacy JWT_SECRET if provided;
+    # fall back to SECRET_KEY when JWT_SECRET is unset OR an empty string.
+    "SIGNING_KEY": env("JWT_SECRET", default="") or SECRET_KEY,
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 

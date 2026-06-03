@@ -71,6 +71,27 @@ def publish(run_id, event_type, data=None, agent=None) -> int | None:
     return seq
 
 
+def record_and_publish(run_id, event_type, data=None, agent=None) -> int | None:
+    """Persist EventLog + broadcast AND write normalized rows.
+
+    Registered as the engine event publisher so adapter/screenshot events
+    (which bypass the CrewAIEventBridge callback) still produce AgentStep /
+    Screenshot / etc. rows — not just EventLog entries.
+    """
+    seq = publish(run_id, event_type, data, agent)
+    try:
+        from apps.hunts.models import Run
+
+        from . import recorders
+
+        run = Run.objects.filter(id=run_id).first()
+        if run is not None:
+            recorders.record_event(run, event_type, data or {}, seq or 0)
+    except Exception:
+        logger.exception("record_and_publish recorder failed for %s", event_type)
+    return seq
+
+
 # --- legacy compatibility shims -------------------------------------------- #
 def publish_event(run_id, event: dict) -> int | None:
     return publish(run_id, event.get("type"), event.get("data") or {})

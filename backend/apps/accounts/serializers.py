@@ -1,17 +1,20 @@
-"""Accounts serializers: user, registration, JWT-with-user."""
-from django.contrib.auth import get_user_model
+"""Accounts serializers: user, registration, login."""
+from django.contrib.auth import authenticate, get_user_model
 from rest_framework import serializers
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 User = get_user_model()
 
 
 class UserSerializer(serializers.ModelSerializer):
+    workspace_ids = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        fields = ("id", "email", "username", "role", "is_active",
-                  "is_staff", "created_at")
+        fields = ("id", "email", "username", "role", "is_active", "workspace_ids")
         read_only_fields = fields
+
+    def get_workspace_ids(self, obj):
+        return [str(w.id) for w in obj.workspaces.all()]
 
 
 class RegisterSerializer(serializers.ModelSerializer):
@@ -30,17 +33,17 @@ class RegisterSerializer(serializers.ModelSerializer):
         return user
 
 
-class TokenWithUserSerializer(TokenObtainPairSerializer):
-    """JWT pair + embedded user claims and the serialized user in the body."""
-
-    @classmethod
-    def get_token(cls, user):
-        token = super().get_token(user)
-        token["email"] = user.email
-        token["role"] = user.role
-        return token
+class LoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
-        data = super().validate(attrs)
-        data["user"] = UserSerializer(self.user).data
-        return data
+        user = authenticate(
+            username=attrs["email"], password=attrs["password"]
+        )
+        if not user:
+            raise serializers.ValidationError("Invalid email or password")
+        if not user.is_active:
+            raise serializers.ValidationError("Account is disabled")
+        attrs["user"] = user
+        return attrs

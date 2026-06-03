@@ -26,6 +26,27 @@ def build_embedder_config(llm_factory, keys: dict) -> dict | None:
     return None
 
 
+def _build_crewai_llm(llm_factory, keys: dict):
+    """Build a crewai.LLM (litellm) — crewai 1.x rejects LangChain chat models.
+
+    Uses litellm provider-prefixed model strings and the resolved API key.
+    """
+    from crewai import LLM
+
+    provider = llm_factory._resolve_provider(keys)
+    model = llm_factory.resolve_model_name()
+    if provider == "anthropic":
+        return LLM(model=f"anthropic/{model}",
+                   api_key=llm_factory._resolve_anthropic_key(keys), temperature=0.1)
+    if provider == "google":
+        return LLM(model=f"gemini/{model}",
+                   api_key=llm_factory._resolve_google_key(keys), temperature=0.1)
+    if provider == "ollama":
+        url = llm_factory._resolve_ollama_url(keys) or llm_factory.DEFAULT_OLLAMA_URL
+        return LLM(model=f"ollama/{model}", base_url=url, temperature=0.1)
+    return LLM(model=model, api_key=llm_factory._resolve_openai_key(keys), temperature=0.1)
+
+
 def build_crew_factory(keys_provider) -> Any | None:
     """Return a CrewFactory, or None if no LLM key is configured."""
     from redweaver_engine.crews.bug_hunt.builder import CrewFactory
@@ -36,8 +57,8 @@ def build_crew_factory(keys_provider) -> Any | None:
     if not llm_factory.has_api_key():
         return None
 
-    llm = llm_factory.create_crewai_llm()
     keys = keys_provider.get_all()
+    llm = _build_crewai_llm(llm_factory, keys)
     registry = ToolRegistry(
         virustotal_api_key=keys.get("virustotal_api_key"),
         urlscan_api_key=keys.get("urlscan_api_key"),

@@ -10,10 +10,11 @@ class ObservabilityConfig(AppConfig):
         try:
             from redweaver_engine.tools import instrumentation as instr
 
-            from .publisher import publish
+            from .publisher import record_and_publish
             from .recorders import tool_recorder
 
-            instr.set_event_publisher(publish)
+            # Combined sink: EventLog + Channels broadcast + normalized rows.
+            instr.set_event_publisher(record_and_publish)
             instr.set_tool_recorder(tool_recorder)
         except Exception:  # engine optional during some mgmt commands
             pass
