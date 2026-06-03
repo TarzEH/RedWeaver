@@ -68,6 +68,7 @@ class CrewFactory:
         step_callback: Callable | None = None,
         task_callback: Callable | None = None,
         event_bridge: CrewAIEventBridge | None = None,
+        run_id: str | None = None,
     ) -> Crew:
         has_ssh = ssh_config is not None and ssh_config.get("host")
         target_type, selected = select_agent_names(target, objective, ssh_config)
@@ -83,7 +84,7 @@ class CrewFactory:
 
         core_names = [a for a in selected if a not in SSH_AGENTS]
         agents = self._build_agents(
-            core_names, include_ssh=has_ssh, verbose=crew_verbose,
+            core_names, include_ssh=has_ssh, verbose=crew_verbose, run_id=run_id,
         )
 
         tasks = self._build_tasks(
@@ -135,6 +136,7 @@ class CrewFactory:
         include_ssh: bool = False,
         *,
         verbose: bool = False,
+        run_id: str | None = None,
     ) -> dict[str, Agent]:
         common: dict[str, Any] = {
             "llm": self._llm,
@@ -151,7 +153,9 @@ class CrewFactory:
             if not config:
                 logger.warning("Unknown agent name: %s, skipping", name)
                 continue
-            tools = to_crewai_tools(self._registry.get_tools_for_agent(name))
+            tools = to_crewai_tools(
+                self._registry.get_tools_for_agent(name), run_id, name
+            )
             agents[name] = Agent(
                 role=config["role"],
                 goal=config["goal"],
@@ -164,7 +168,9 @@ class CrewFactory:
         if include_ssh:
             for name in SSH_AGENTS:
                 config = self._agent_prompts[name]
-                tools = to_crewai_tools(self._registry.get_tools_for_agent(name))
+                tools = to_crewai_tools(
+                    self._registry.get_tools_for_agent(name), run_id, name
+                )
                 agents[name] = Agent(
                     role=config["role"],
                     goal=config["goal"],
@@ -254,12 +260,13 @@ class CrewFactory:
 
         crawler_task = None
         if "crawler" in agents:
-            crawler_ctx = [recon_task]
-            if fuzzer_task:
-                crawler_ctx.append(fuzzer_task)
+            # Depends only on recon so it can run async (in parallel with
+            # fuzzer/vuln_scanner/web_search). CrewAI forbids an async task from
+            # referencing prior async tasks in context.
             crawler_task = _make_task(
                 "crawler", "crawler", CrawlerResult,
-                context=crawler_ctx,
+                context=[recon_task],
+                async_execution=True,
                 expected_output=(
                     "Complete endpoint map: all web pages, JS files, forms, API routes, "
                     "hidden paths, and development artifacts discovered."
@@ -268,12 +275,12 @@ class CrewFactory:
 
         web_search_task = None
         if "web_search" in agents:
-            ws_ctx = [recon_task]
-            if vuln_scan_task:
-                ws_ctx.append(vuln_scan_task)
+            # Depends only on recon -> can run async in parallel with the rest
+            # of the discovery batch (vuln results still reach exploit_analyst).
             web_search_task = _make_task(
                 "web_search", "web_search", WebSearchResult,
-                context=ws_ctx,
+                context=[recon_task],
+                async_execution=True,
                 expected_output=(
                     "CVEs, public exploits, advisories, and bug bounty reports for all "
                     "technologies found. Each correlated item as a finding."

@@ -69,6 +69,7 @@ def execute_run(self, run_id: str) -> None:
                 step_callback=bridge.step_callback,
                 task_callback=bridge.task_callback,
                 event_bridge=bridge,
+                run_id=str(run.id),
             )
             logger.info("CrewAI kickoff for run %s (target=%s)", run.id, run.target)
             result = crew.kickoff()

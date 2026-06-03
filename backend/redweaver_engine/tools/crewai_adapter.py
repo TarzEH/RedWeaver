@@ -37,14 +37,27 @@ class CrewAIToolAdapter(BaseTool):
     description: str
     args_schema: Type[BaseModel] = _ToolInput
     _bug_hunt_tool: BugHuntTool = PrivateAttr()
+    # Baked at crew-build time so tool recording stays correct even when CrewAI
+    # runs agents concurrently (async tasks run in threads where the run-context
+    # contextvar may not have propagated).
+    _rw_run_id: Any = PrivateAttr(default=None)
+    _rw_agent: Any = PrivateAttr(default=None)
 
-    def __init__(self, tool: BugHuntTool, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        tool: BugHuntTool,
+        run_id: Any = None,
+        agent: Any = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(
             name=tool.name,
             description=tool.description,
             **kwargs,
         )
         self._bug_hunt_tool = tool
+        self._rw_run_id = run_id
+        self._rw_agent = agent
 
     def _run(
         self,
@@ -63,6 +76,10 @@ class CrewAIToolAdapter(BaseTool):
                 parsed_options = None
 
         run_id, agent = instr.get_run_context()
+        if not run_id:
+            run_id = self._rw_run_id
+        if not agent:
+            agent = self._rw_agent
         instr.pop_cli_raw()  # drain any stale CLI capture before invoking
         instr.publish_event(
             run_id, "tool_call",
@@ -123,14 +140,16 @@ class CrewAIToolAdapter(BaseTool):
         return output
 
 
-def to_crewai_tool(tool: BugHuntTool) -> CrewAIToolAdapter:
+def to_crewai_tool(
+    tool: BugHuntTool, run_id: Any = None, agent: Any = None
+) -> CrewAIToolAdapter:
     """Wrap a single BugHuntTool as a CrewAI BaseTool."""
-    return CrewAIToolAdapter(tool=tool)
+    return CrewAIToolAdapter(tool=tool, run_id=run_id, agent=agent)
 
 
-def to_crewai_tools(tools: list[BugHuntTool]) -> list[BaseTool]:
-    """Convert a list of BugHuntTools to CrewAI BaseTools.
-
-    Only includes tools that are available (binary installed, API key set, etc.).
-    """
-    return [to_crewai_tool(t) for t in tools if t.is_available()]
+def to_crewai_tools(
+    tools: list[BugHuntTool], run_id: Any = None, agent: Any = None
+) -> list[BaseTool]:
+    """Convert available BugHuntTools to CrewAI BaseTools, baking run/agent
+    context so concurrent (async) agents still record tool executions."""
+    return [to_crewai_tool(t, run_id, agent) for t in tools if t.is_available()]

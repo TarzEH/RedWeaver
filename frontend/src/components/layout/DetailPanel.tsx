@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Shield, Workflow } from "lucide-react";
 import { FindingsPanel } from "../../features/hunt/FindingsPanel";
-import { AgentFlowView } from "../domain/AgentFlowView";
+import { AgentGraph } from "../domain/AgentGraph";
 import { useHuntContext } from "../../contexts/HuntContext";
 
 type DetailTab = "flow" | "findings";
@@ -44,7 +44,7 @@ export function DetailPanel({ runId }: { runId: string | null }) {
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         {detailTab === "flow" && (
           <div className="flex-1 overflow-y-auto min-h-0">
-            <AgentFlowView graphState={graphState} steps={steps} findings={findings} isLive={!done} />
+            <AgentGraph graphState={graphState} steps={steps} findings={findings} isLive={!done} />
           </div>
         )}
         {detailTab === "findings" && (
