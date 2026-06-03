@@ -23,12 +23,13 @@ class ToolRegistry:
             ToolCategory.WEB_DISCOVERY,
             ToolCategory.HTTP_API,
             ToolCategory.OSINT,
+            ToolCategory.BROWSER,
         ],
         "crawler": [ToolCategory.WEB_DISCOVERY, ToolCategory.BROWSER],
         "vuln_scanner": [ToolCategory.VULNERABILITY],
         "fuzzer": [ToolCategory.FUZZING],
         "web_search": [ToolCategory.WEB_SEARCH, ToolCategory.VULNERABILITY],
-        "exploit_analyst": [ToolCategory.WEB_SEARCH, ToolCategory.VULNERABILITY, ToolCategory.KNOWLEDGE],
+        "exploit_analyst": [ToolCategory.WEB_SEARCH, ToolCategory.VULNERABILITY, ToolCategory.KNOWLEDGE, ToolCategory.BROWSER],
         "privesc": [ToolCategory.SSH, ToolCategory.KNOWLEDGE],
         "tunnel_pivot": [ToolCategory.SSH, ToolCategory.KNOWLEDGE],
         "post_exploit": [ToolCategory.SSH, ToolCategory.FILE_IO, ToolCategory.KNOWLEDGE],
@@ -47,6 +48,7 @@ class ToolRegistry:
         self._register_http_tools(virustotal_api_key, urlscan_api_key)
         self._register_search_tools()
         self._register_cvedetails_tool()
+        self._register_screenshot_tool()
 
     def _register_cli_tools(self) -> None:
         for tool_cls in ALL_CLI_TOOLS:
@@ -70,6 +72,11 @@ class ToolRegistry:
     def _register_cvedetails_tool(self) -> None:
         nvd_key = os.environ.get("NVD_API_KEY", "")
         self._tools["cvedetails_lookup"] = CVEDetailsLookupTool(nvd_key)
+
+    def _register_screenshot_tool(self) -> None:
+        from redweaver_engine.tools.screenshot import ScreenshotTool
+
+        self._tools["screenshot_capture"] = ScreenshotTool()
 
     def get_all_tools(self) -> list[BugHuntTool]:
         return list(self._tools.values())

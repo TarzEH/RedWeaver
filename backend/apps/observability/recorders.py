@@ -16,6 +16,7 @@ from .models import (
     AgentTransition,
     GraphSnapshot,
     HuntflowNode,
+    Screenshot,
     ToolExecution,
 )
 
@@ -51,6 +52,8 @@ def record_event(run, event_type: str, data: dict, seq: int) -> None:
             _huntflow_added(run, data, seq)
         elif event_type == "huntflow_node_completed":
             _huntflow_completed(run, data)
+        if event_type == "screenshot":
+            _screenshot(run, data)
     except Exception:
         logger.exception("record_event failed: %s", event_type)
 
@@ -155,6 +158,22 @@ def _huntflow_added(run, data, seq) -> None:
 def _huntflow_completed(run, data) -> None:
     HuntflowNode.objects.filter(run=run, node_id=data.get("id")).update(
         completed_at=timezone.now(), duration_ms=data.get("duration_ms")
+    )
+
+
+def _screenshot(run, data) -> None:
+    Screenshot.objects.create(
+        run=run,
+        agent_name=data.get("agent") or "",
+        tool_name=data.get("tool") or "screenshot_capture",
+        url=data.get("url") or "",
+        final_url=data.get("final_url") or "",
+        image=data.get("path") or "",  # media-relative path; file already on disk
+        width=data.get("width"),
+        height=data.get("height"),
+        bytes=data.get("bytes"),
+        page_title=(data.get("page_title") or "")[:512],
+        http_status=data.get("http_status"),
     )
 
 
