@@ -1,0 +1,114 @@
+"""DRF viewsets for runs, hunts, sessions, targets.
+
+Run and Hunt are the same model exposed two ways for frontend compatibility.
+Execution (start/stop/chat -> Celery) is wired in Phase F; the start/stop
+actions here update status and enqueue when the task is available.
+"""
+from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
+
+from .models import Run, Session, Target
+from .serializers import (
+    HuntCreateSerializer,
+    HuntDetailSerializer,
+    HuntSerializer,
+    RunDetailSerializer,
+    RunSummarySerializer,
+    SessionSerializer,
+    SessionWriteSerializer,
+    TargetSerializer,
+    TargetWriteSerializer,
+)
+
+
+class RunViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.DestroyModelMixin,
+    viewsets.GenericViewSet,
+):
+    queryset = Run.objects.all().select_related("session", "workspace")
+
+    def get_serializer_class(self):
+        return RunDetailSerializer if self.action == "retrieve" else RunSummarySerializer
+
+
+def _enqueue_run(run: Run) -> None:
+    """Enqueue execution if the Celery task exists (wired in Phase F)."""
+    try:
+        from .tasks import execute_run
+    except Exception:
+        return
+    execute_run.delay(str(run.id))
+
+
+class HuntViewSet(viewsets.ModelViewSet):
+    queryset = Run.objects.all().select_related("session", "workspace", "target_obj")
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return HuntCreateSerializer
+        if self.action == "retrieve":
+            return HuntDetailSerializer
+        return HuntSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        sid = self.request.query_params.get("session_id")
+        return qs.filter(session_id=sid) if sid else qs
+
+    @action(detail=True, methods=["post"])
+    def start(self, request, pk=None):
+        run = self.get_object()
+        run.status = Run._meta.get_field("status").default  # queued
+        run.save(update_fields=["status", "updated_at"])
+        _enqueue_run(run)
+        return Response(HuntSerializer(run, context={"request": request}).data)
+
+    @action(detail=True, methods=["post"])
+    def stop(self, request, pk=None):
+        run = self.get_object()
+        run.status = "cancelled"
+        run.save(update_fields=["status", "updated_at"])
+        return Response(HuntSerializer(run, context={"request": request}).data)
+
+
+class SessionViewSet(viewsets.ModelViewSet):
+    queryset = Session.objects.all().select_related("workspace")
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return SessionWriteSerializer
+        return SessionSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        wid = self.request.query_params.get("workspace_id")
+        return qs.filter(workspace_id=wid) if wid else qs
+
+    @action(detail=True, methods=["post"], url_path=r"targets/(?P<target_id>[^/.]+)")
+    def link_target(self, request, pk=None, target_id=None):
+        session = self.get_object()
+        updated = Target.objects.filter(id=target_id).update(session=session)
+        if not updated:
+            return Response({"detail": "target not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response({"status": "linked"})
+
+
+class TargetViewSet(viewsets.ModelViewSet):
+    queryset = Target.objects.all()
+
+    def get_serializer_class(self):
+        if self.action in ("create", "update", "partial_update"):
+            return TargetWriteSerializer
+        return TargetSerializer
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        sid = self.request.query_params.get("session_id")
+        return qs.filter(session_id=sid) if sid else qs
+
+    def update(self, request, *args, **kwargs):
+        kwargs["partial"] = True  # treat PUT as partial (frontend sends sparse bodies)
+        return super().update(request, *args, **kwargs)
