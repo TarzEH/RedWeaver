@@ -22,6 +22,7 @@ def build_offsec_crew(
     run_id: str | None = None,
     step_callback: Callable | None = None,
     task_callback: Callable | None = None,
+    research_context: str = "",
 ) -> Crew:
     # Research tools: web search, CVE lookup, and the local knowledge base.
     tools: list = []
@@ -61,15 +62,25 @@ def build_offsec_crew(
     )
 
     findings_block = json.dumps(findings, indent=2, default=str)[:9000]
+    research_section = ""
+    if research_context.strip():
+        research_section = (
+            "\n\n## RESEARCH CONTEXT (REAL pre-fetched sources — base your "
+            "recommendations, commands and References on THESE; cite the KB file / "
+            "URL / CVE for each recommendation):\n"
+            f"{research_context}\n"
+        )
     description = (
         f"Target: {target}\n\n"
         f"Confirmed findings from the automated hunt (analyze these in parallel):\n"
-        f"```json\n{findings_block}\n```\n\n"
+        f"```json\n{findings_block}\n```\n"
+        f"{research_section}\n"
         "Produce a PRACTICAL OFFENSIVE PLAYBOOK in Markdown for an authorized "
-        "engagement. For EACH relevant finding, research it: call knowledge_search "
-        "(security methodology / exploitation notes), and corroborate with web_search "
-        "and cvedetails_lookup for public exploits/CVEs. Then write a staged attack "
-        "flow. Structure:\n"
+        "engagement. GROUND every stage in the RESEARCH CONTEXT above — quote the "
+        "knowledge-base guidance and the public exploit/CVE details, and cite the "
+        "source (KB filename or URL) in each stage's References. You may also call "
+        "knowledge_search / web_search / cvedetails_lookup to dig deeper. Then write "
+        "a staged attack flow. Structure:\n"
         "# OffSec Playbook — <target>\n"
         "## Attack Flow Overview  (a short ordered kill-chain for THIS target)\n"
         "## Stage N: <name>  (one section per stage)\n"
