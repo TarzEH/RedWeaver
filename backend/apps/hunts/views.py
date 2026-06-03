@@ -5,8 +5,10 @@ Execution (start/stop/chat -> Celery) is wired in Phase F; the start/stop
 actions here update status and enqueue when the task is available.
 """
 from rest_framework import mixins, status, viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
 
 from .models import Run, Session, Target
 from .serializers import (
@@ -112,3 +114,21 @@ class TargetViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         kwargs["partial"] = True  # treat PUT as partial (frontend sends sparse bodies)
         return super().update(request, *args, **kwargs)
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def run_offsec(request, run_id):
+    """GET -> {status, markdown}; POST -> enqueue the OffSec playbook agent."""
+    run = get_object_or_404(Run, id=run_id)
+    if request.method == "POST":
+        if run.offsec_status not in ("running", "queued"):
+            run.offsec_status = "queued"
+            run.save(update_fields=["offsec_status", "updated_at"])
+            try:
+                from .offsec_tasks import generate_offsec_playbook
+                generate_offsec_playbook.delay(str(run.id))
+            except Exception:
+                pass
+        return Response({"status": run.offsec_status})
+    return Response({"status": run.offsec_status, "markdown": run.offsec_markdown})

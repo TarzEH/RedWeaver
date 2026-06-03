@@ -3,7 +3,7 @@ from django.urls import path
 from rest_framework.routers import SimpleRouter
 
 from .chat_views import ChatView
-from .views import HuntViewSet, RunViewSet, SessionViewSet, TargetViewSet
+from .views import HuntViewSet, RunViewSet, SessionViewSet, TargetViewSet, run_offsec
 
 router = SimpleRouter(trailing_slash=False)
 router.register("runs", RunViewSet, basename="run")
@@ -13,5 +13,6 @@ router.register("targets", TargetViewSet, basename="target")
 
 urlpatterns = [
     path("chat", ChatView.as_view(), name="chat"),
+    path("runs/<uuid:run_id>/offsec", run_offsec, name="run-offsec"),
     *router.urls,
 ]

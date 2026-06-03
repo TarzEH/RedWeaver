@@ -135,6 +135,10 @@ export const api = {
       request<{ findings: Finding[] }>(`/api/runs/${id}/findings`).then(
         (d) => d.findings || (d as unknown as Finding[]) || [],
       ),
+    offsecStart: (id: string) =>
+      request<{ status: string }>(`/api/runs/${id}/offsec`, { method: "POST" }),
+    offsecGet: (id: string) =>
+      request<{ status: string; markdown: string }>(`/api/runs/${id}/offsec`),
   },
 
   chat: {

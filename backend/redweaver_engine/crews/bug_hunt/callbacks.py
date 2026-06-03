@@ -365,12 +365,10 @@ class CrewAIEventBridge:
             )
             self._emit_node_added(tool_node)
 
-            self._callback("tool_call", {
-                "agent": agent_name,
-                "agent_name": display,
-                "tool": str(tool_name),
-                "input": "",
-            })
+            # tool_call/tool_result events are emitted authoritatively by the
+            # CrewAIToolAdapter (with real argv, duration, exit code and the
+            # ToolExecution id). We only keep huntflow-tree bookkeeping here to
+            # avoid duplicate tool events.
 
             if tool_result is not None:
                 result_str = _safe_str(tool_result)
@@ -385,13 +383,7 @@ class CrewAIEventBridge:
                 )
                 self._tree.complete_node(result_node.id)
                 self._emit_node_added(result_node)
-
-                self._callback("tool_result", {
-                    "agent": agent_name,
-                    "agent_name": display,
-                    "tool": str(tool_name),
-                    "summary": result_str,
-                })
+                # (tool_result event emitted by the adapter — see note above)
 
     @staticmethod
     def _extract_thought(step_output: Any) -> str:

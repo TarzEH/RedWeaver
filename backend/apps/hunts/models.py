@@ -184,6 +184,10 @@ class Run(TimeStampedUUIDModel):
     report_markdown = models.TextField(blank=True, default="")
     messages = models.JSONField(default=list, blank=True)
 
+    # OffSec playbook (separate offensive-security agent, on-demand)
+    offsec_markdown = models.TextField(blank=True, default="")
+    offsec_status = models.CharField(max_length=16, default="none")  # none/queued/running/completed/failed
+
     class Meta:
         ordering = ["-created_at"]
         indexes = [

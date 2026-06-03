@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Shield, Workflow } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Shield, Workflow, Swords } from "lucide-react";
 import { FindingsPanel } from "../../features/hunt/FindingsPanel";
 import { AgentGraph } from "../domain/AgentGraph";
 import { useHuntContext } from "../../contexts/HuntContext";
@@ -53,6 +54,15 @@ export function DetailPanel({ runId }: { runId: string | null }) {
           </div>
         )}
       </div>
+
+      {runId && (
+        <Link
+          to={`/debug/${runId}`}
+          className="flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium text-rose-300 hover:text-rose-200 border-t border-rw-border bg-rose-500/5 hover:bg-rose-500/10 transition-colors"
+        >
+          <Swords size={13} /> OffSec Playbook &amp; Behind-the-scenes
+        </Link>
+      )}
     </aside>
   );
 }
