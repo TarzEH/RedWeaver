@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from redweaver_engine.crews.bug_hunt.config_loader import get_display_names
 from redweaver_engine.huntflow_types import HuntflowNodeType, HuntflowTree
+from redweaver_engine.tools.instrumentation import set_active_agent
 
 logger = logging.getLogger(__name__)
 
@@ -164,9 +165,11 @@ class CrewAIEventBridge:
         self,
         tree: HuntflowTree,
         event_callback: Callable[[str, dict[str, Any]], None],
+        run_id: str | None = None,
     ) -> None:
         self._tree = tree
         self._callback = event_callback
+        self._run_id = run_id
         self._agent_node_ids: dict[str, str] = {}
         self._active_agents: set[str] = set()
         self._completed_agents: list[str] = []
@@ -185,6 +188,9 @@ class CrewAIEventBridge:
 
             display_names = get_display_names()
             display = display_names.get(agent_name, agent_name.replace("_", " ").title())
+
+            # Keep the tool-instrumentation context pointed at the active agent.
+            set_active_agent(agent_name)
 
             if agent_name not in self._active_agents:
                 self._active_agents.add(agent_name)

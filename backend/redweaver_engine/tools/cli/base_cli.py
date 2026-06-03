@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from redweaver_engine.tools.base import ToolCategory
+from redweaver_engine.tools.instrumentation import CLIRaw, stash_cli_raw
 
 
 class BaseCLITool(ABC):
@@ -66,6 +67,7 @@ class BaseCLITool(ABC):
         cmd = self.build_command(target, scope, options)
         timeout = options.get("timeout", self.default_timeout)
 
+        cmd_str = " ".join(str(c) for c in cmd)
         try:
             result = subprocess.run(
                 cmd,
@@ -74,10 +76,22 @@ class BaseCLITool(ABC):
                 timeout=timeout,
                 cwd="/tmp",
             )
+            stash_cli_raw(CLIRaw(
+                command=cmd_str, argv=list(cmd),
+                stdout=result.stdout, stderr=result.stderr,
+                exit_code=result.returncode,
+            ))
             return self.parse_output(result.stdout, result.stderr, result.returncode)
         except subprocess.TimeoutExpired:
+            stash_cli_raw(CLIRaw(
+                command=cmd_str, argv=list(cmd),
+                stderr=f"timed out after {timeout}s", exit_code=-1,
+            ))
             return {"error": f"{self.binary_name} timed out after {timeout}s"}
         except Exception as e:
+            stash_cli_raw(CLIRaw(
+                command=cmd_str, argv=list(cmd), stderr=str(e), exit_code=-2,
+            ))
             return {"error": f"{self.binary_name} failed: {e!s}"}
 
     # ------------------------------------------------------------------ #
@@ -97,6 +111,7 @@ class BaseCLITool(ABC):
         cmd = self.build_command(target, scope, options)
         timeout = options.get("timeout", self.default_timeout)
 
+        cmd_str = " ".join(str(c) for c in cmd)
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -107,15 +122,24 @@ class BaseCLITool(ABC):
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
                 proc.communicate(), timeout=timeout
             )
-            return self.parse_output(
-                stdout_bytes.decode(errors="replace"),
-                stderr_bytes.decode(errors="replace"),
-                proc.returncode or 0,
-            )
+            out = stdout_bytes.decode(errors="replace")
+            err = stderr_bytes.decode(errors="replace")
+            stash_cli_raw(CLIRaw(
+                command=cmd_str, argv=list(cmd),
+                stdout=out, stderr=err, exit_code=proc.returncode or 0,
+            ))
+            return self.parse_output(out, err, proc.returncode or 0)
         except asyncio.TimeoutError:
             proc.kill()  # type: ignore[union-attr]
+            stash_cli_raw(CLIRaw(
+                command=cmd_str, argv=list(cmd),
+                stderr=f"timed out after {timeout}s", exit_code=-1,
+            ))
             return {"error": f"{self.binary_name} timed out after {timeout}s"}
         except Exception as e:
+            stash_cli_raw(CLIRaw(
+                command=cmd_str, argv=list(cmd), stderr=str(e), exit_code=-2,
+            ))
             return {"error": f"{self.binary_name} failed: {e!s}"}
 
     # ------------------------------------------------------------------ #
