@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 620" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" font-family="'Segoe UI', system-ui, -apple-system, sans-serif">
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#0a0e1a"/>
@@ -20,158 +20,156 @@
       <stop offset="0%" stop-color="#8b5cf6"/>
       <stop offset="100%" stop-color="#7c3aed"/>
     </linearGradient>
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="2" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
+    <linearGradient id="red" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ef4444"/>
+      <stop offset="100%" stop-color="#dc2626"/>
+    </linearGradient>
   </defs>
 
   <!-- Background -->
-  <rect width="900" height="620" fill="url(#bg)" rx="12"/>
+  <rect width="900" height="700" fill="url(#bg)" rx="12"/>
 
   <!-- ===== FRONTEND LAYER ===== -->
   <rect x="40" y="25" width="820" height="100" rx="10" fill="#111827" stroke="#1e3a5f" stroke-width="1.5"/>
   <text x="450" y="50" text-anchor="middle" fill="#60a5fa" font-size="13" font-weight="600" letter-spacing="1.5">FRONTEND</text>
-  <text x="450" y="70" text-anchor="middle" fill="#94a3b8" font-size="11">React 18 + TypeScript + Vite</text>
+  <text x="450" y="68" text-anchor="middle" fill="#94a3b8" font-size="11">React 18 + TypeScript + Vite (served by nginx)</text>
 
-  <!-- Frontend page boxes -->
-  <rect x="60"  y="85" width="110" height="28" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-  <text x="115" y="103" text-anchor="middle" fill="#e2e8f0" font-size="10">Dashboard</text>
+  <!-- Frontend page chips -->
+  <rect x="52"  y="84" width="105" height="26" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="104" y="101" text-anchor="middle" fill="#e2e8f0" font-size="9">Dashboard</text>
+  <rect x="165" y="84" width="105" height="26" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="217" y="101" text-anchor="middle" fill="#e2e8f0" font-size="9">Hunt</text>
+  <rect x="278" y="84" width="105" height="26" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="330" y="101" text-anchor="middle" fill="#e2e8f0" font-size="9">Findings</text>
+  <rect x="391" y="84" width="105" height="26" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="443" y="101" text-anchor="middle" fill="#e2e8f0" font-size="9">Sessions</text>
+  <rect x="504" y="84" width="105" height="26" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="556" y="101" text-anchor="middle" fill="#e2e8f0" font-size="9">Debug</text>
+  <rect x="617" y="84" width="105" height="26" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="669" y="101" text-anchor="middle" fill="#e2e8f0" font-size="9">Knowledge</text>
+  <rect x="730" y="84" width="105" height="26" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="782" y="101" text-anchor="middle" fill="#e2e8f0" font-size="9">Settings</text>
 
-  <rect x="180" y="85" width="110" height="28" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-  <text x="235" y="103" text-anchor="middle" fill="#e2e8f0" font-size="10">Hunt</text>
-
-  <rect x="300" y="85" width="110" height="28" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-  <text x="355" y="103" text-anchor="middle" fill="#e2e8f0" font-size="10">Findings</text>
-
-  <rect x="420" y="85" width="110" height="28" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-  <text x="475" y="103" text-anchor="middle" fill="#e2e8f0" font-size="10">Sessions</text>
-
-  <rect x="540" y="85" width="110" height="28" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-  <text x="595" y="103" text-anchor="middle" fill="#e2e8f0" font-size="10">Knowledge</text>
-
-  <rect x="660" y="85" width="110" height="28" rx="6" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-  <text x="715" y="103" text-anchor="middle" fill="#e2e8f0" font-size="10">Settings</text>
-
-  <!-- SSE arrow -->
-  <line x1="450" y1="125" x2="450" y2="160" stroke="#3b82f6" stroke-width="2" stroke-dasharray="6,3"/>
-  <polygon points="445,155 450,165 455,155" fill="#3b82f6"/>
-  <text x="475" y="148" fill="#60a5fa" font-size="9" font-weight="500">SSE Stream</text>
+  <!-- REST down arrow -->
+  <line x1="370" y1="125" x2="370" y2="160" stroke="#3b82f6" stroke-width="2" stroke-dasharray="6,3"/>
+  <polygon points="365,155 370,165 375,155" fill="#3b82f6"/>
+  <text x="300" y="148" fill="#60a5fa" font-size="9" font-weight="500">REST · DRF</text>
+  <!-- WebSocket up arrow -->
+  <line x1="530" y1="160" x2="530" y2="125" stroke="#34d399" stroke-width="2" stroke-dasharray="6,3"/>
+  <polygon points="525,130 530,120 535,130" fill="#34d399"/>
+  <text x="545" y="148" fill="#34d399" font-size="9" font-weight="500">WebSocket · Channels</text>
 
   <!-- ===== BACKEND LAYER ===== -->
-  <rect x="40" y="165" width="820" height="250" rx="10" fill="#111827" stroke="#1e3a5f" stroke-width="1.5"/>
-  <text x="450" y="190" text-anchor="middle" fill="#60a5fa" font-size="13" font-weight="600" letter-spacing="1.5">BACKEND</text>
-  <text x="450" y="208" text-anchor="middle" fill="#94a3b8" font-size="11">FastAPI + CrewAI</text>
+  <rect x="40" y="165" width="820" height="258" rx="10" fill="#111827" stroke="#1e3a5f" stroke-width="1.5"/>
+  <text x="450" y="189" text-anchor="middle" fill="#60a5fa" font-size="13" font-weight="600" letter-spacing="1.5">BACKEND — Django</text>
+  <text x="450" y="207" text-anchor="middle" fill="#94a3b8" font-size="11">web · Daphne ASGI  +  worker · Celery</text>
 
-  <!-- CrewAI Crew box -->
-  <rect x="70" y="220" width="540" height="140" rx="8" fill="#0f172a" stroke="#1e3a5f" stroke-width="1"/>
-  <text x="340" y="242" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">CrewAI Crew — Sequential Tasks</text>
+  <!-- web strip -->
+  <rect x="70" y="216" width="540" height="30" rx="6" fill="#0f172a" stroke="#1e3a5f" stroke-width="1"/>
+  <text x="340" y="235" text-anchor="middle" fill="#60a5fa" font-size="10" font-weight="500">web — Daphne ASGI · DRF REST + Channels (WebSocket) + Django Admin</text>
 
-  <!-- Agent pipeline -->
-  <rect x="90"  y="256" width="80" height="32" rx="6" fill="url(#accent)" opacity="0.9"/>
-  <text x="130" y="276" text-anchor="middle" fill="white" font-size="10" font-weight="600">Recon</text>
+  <!-- worker / CrewAI crew box -->
+  <rect x="70" y="252" width="540" height="160" rx="8" fill="#0f172a" stroke="#1e3a5f" stroke-width="1"/>
+  <text x="340" y="272" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="600">worker — Celery · CrewAI Crew</text>
 
-  <text x="182" y="276" fill="#475569" font-size="14">&#8594;</text>
+  <!-- agent pipeline row 1 -->
+  <rect x="90"  y="286" width="80" height="30" rx="6" fill="url(#accent)" opacity="0.9"/>
+  <text x="130" y="305" text-anchor="middle" fill="white" font-size="10" font-weight="600">Recon</text>
+  <text x="182" y="306" fill="#475569" font-size="14">&#8594;</text>
+  <rect x="195" y="286" width="80" height="30" rx="6" fill="url(#accent)" opacity="0.9"/>
+  <text x="235" y="305" text-anchor="middle" fill="white" font-size="10" font-weight="600">Fuzzer</text>
+  <text x="287" y="306" fill="#475569" font-size="14">&#8594;</text>
+  <rect x="300" y="286" width="80" height="30" rx="6" fill="url(#accent)" opacity="0.9"/>
+  <text x="340" y="305" text-anchor="middle" fill="white" font-size="10" font-weight="600">Crawler</text>
+  <text x="392" y="306" fill="#475569" font-size="14">&#8594;</text>
+  <rect x="405" y="286" width="80" height="30" rx="6" fill="url(#accent)" opacity="0.9"/>
+  <text x="445" y="305" text-anchor="middle" fill="white" font-size="10" font-weight="600">Vuln Scan</text>
+  <text x="497" y="306" fill="#475569" font-size="14">&#8594;</text>
+  <rect x="510" y="286" width="80" height="30" rx="6" fill="url(#accent)" opacity="0.9"/>
+  <text x="550" y="305" text-anchor="middle" fill="white" font-size="9" font-weight="500">Web Search</text>
 
-  <rect x="195" y="256" width="80" height="32" rx="6" fill="url(#accent)" opacity="0.9"/>
-  <text x="235" y="276" text-anchor="middle" fill="white" font-size="10" font-weight="600">Fuzzer</text>
+  <!-- agent pipeline row 2 -->
+  <rect x="90"  y="334" width="105" height="30" rx="6" fill="url(#purple)" opacity="0.9"/>
+  <text x="142" y="353" text-anchor="middle" fill="white" font-size="9" font-weight="600">Exploit Analyst</text>
+  <text x="200" y="354" fill="#475569" font-size="14">&#8594;</text>
+  <rect x="215" y="334" width="105" height="30" rx="6" fill="url(#green)" opacity="0.9"/>
+  <text x="267" y="353" text-anchor="middle" fill="white" font-size="9" font-weight="600">Report Writer</text>
+  <text x="325" y="354" fill="#475569" font-size="14">&#8594;</text>
+  <rect x="340" y="334" width="85" height="30" rx="6" fill="url(#red)" opacity="0.9"/>
+  <text x="382" y="353" text-anchor="middle" fill="white" font-size="9" font-weight="600">OffSec</text>
+  <text x="430" y="354" fill="#475569" font-size="14">&#8594;</text>
+  <rect x="445" y="334" width="105" height="30" rx="6" fill="url(#orange)" opacity="0.85"/>
+  <text x="497" y="350" text-anchor="middle" fill="white" font-size="9" font-weight="500">SSH / PrivEsc</text>
+  <text x="497" y="361" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="7.5">(optional)</text>
 
-  <text x="287" y="276" fill="#475569" font-size="14">&#8594;</text>
+  <text x="340" y="388" text-anchor="middle" fill="#64748b" font-size="8.5">async batches where independent · parallel fuzzer + vuln scan after recon</text>
 
-  <rect x="300" y="256" width="80" height="32" rx="6" fill="url(#accent)" opacity="0.9"/>
-  <text x="340" y="276" text-anchor="middle" fill="white" font-size="10" font-weight="600">Crawler</text>
+  <!-- Right column: services -->
+  <rect x="630" y="216" width="210" height="44" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+  <text x="735" y="234" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">LLM Factory</text>
+  <text x="735" y="250" text-anchor="middle" fill="#64748b" font-size="8.5">OpenAI · Anthropic · Google · Ollama</text>
 
-  <text x="392" y="276" fill="#475569" font-size="14">&#8594;</text>
+  <rect x="630" y="268" width="210" height="66" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+  <text x="735" y="286" text-anchor="middle" fill="#34d399" font-size="10" font-weight="600">Observability sink</text>
+  <text x="735" y="302" text-anchor="middle" fill="#64748b" font-size="8.5">ToolExec (raw output) · AgentStep</text>
+  <text x="735" y="315" text-anchor="middle" fill="#64748b" font-size="8.5">EventLog · GraphSnapshot</text>
+  <text x="735" y="328" text-anchor="middle" fill="#64748b" font-size="8.5">Screenshot · AgentTransition</text>
 
-  <rect x="405" y="256" width="80" height="32" rx="6" fill="url(#accent)" opacity="0.9"/>
-  <text x="445" y="276" text-anchor="middle" fill="white" font-size="10" font-weight="600">Vuln Scan</text>
+  <rect x="630" y="342" width="210" height="40" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1"/>
+  <text x="735" y="360" text-anchor="middle" fill="#60a5fa" font-size="10" font-weight="600">Playwright (Chromium)</text>
+  <text x="735" y="374" text-anchor="middle" fill="#64748b" font-size="8.5">in-scope screenshots</text>
 
-  <text x="497" y="276" fill="#475569" font-size="14">&#8594;</text>
+  <!-- arrows backend -> data stores -->
+  <line x1="240" y1="423" x2="240" y2="443" stroke="#3b82f6" stroke-width="2" stroke-dasharray="6,3"/>
+  <polygon points="235,438 240,448 245,438" fill="#3b82f6"/>
+  <text x="255" y="438" fill="#60a5fa" font-size="8.5">ORM</text>
+  <line x1="660" y1="423" x2="660" y2="443" stroke="#34d399" stroke-width="2" stroke-dasharray="6,3"/>
+  <polygon points="655,438 660,448 665,438" fill="#34d399"/>
+  <text x="675" y="438" fill="#34d399" font-size="8.5">events · tasks</text>
 
-  <rect x="510" y="256" width="80" height="32" rx="6" fill="url(#accent)" opacity="0.9"/>
-  <text x="550" y="276" text-anchor="middle" fill="white" font-size="10" font-weight="500">Web Search</text>
+  <!-- ===== DATA STORES ===== -->
+  <rect x="40" y="443" width="400" height="66" rx="10" fill="#111827" stroke="#1e3a5f" stroke-width="1.5"/>
+  <text x="240" y="466" text-anchor="middle" fill="#60a5fa" font-size="12" font-weight="600">PostgreSQL — system of record</text>
+  <text x="240" y="484" text-anchor="middle" fill="#94a3b8" font-size="9.5">runs · findings · observability · reports</text>
+  <text x="240" y="499" text-anchor="middle" fill="#34d399" font-size="9" font-weight="500">+ pgvector RAG (knowledge base embeddings)</text>
 
-  <!-- Second row of agents -->
-  <text x="182" y="316" fill="#475569" font-size="14">&#8594;</text>
+  <rect x="460" y="443" width="400" height="66" rx="10" fill="#111827" stroke="#1e3a5f" stroke-width="1.5"/>
+  <text x="660" y="466" text-anchor="middle" fill="#f87171" font-size="12" font-weight="600">Redis — transport only</text>
+  <text x="660" y="484" text-anchor="middle" fill="#94a3b8" font-size="9.5">Channels layer · Celery broker</text>
+  <text x="660" y="499" text-anchor="middle" fill="#94a3b8" font-size="9">live pub/sub (no persisted state)</text>
 
-  <rect x="195" y="300" width="100" height="32" rx="6" fill="url(#purple)" opacity="0.9"/>
-  <text x="245" y="320" text-anchor="middle" fill="white" font-size="10" font-weight="600">Exploit Analyst</text>
-
-  <text x="307" y="316" fill="#475569" font-size="14">&#8594;</text>
-
-  <rect x="320" y="300" width="100" height="32" rx="6" fill="url(#green)" opacity="0.9"/>
-  <text x="370" y="320" text-anchor="middle" fill="white" font-size="10" font-weight="600">Report Writer</text>
-
-  <text x="432" y="316" fill="#475569" font-size="14">&#8594;</text>
-
-  <rect x="445" y="300" width="80" height="32" rx="6" fill="url(#orange)" opacity="0.85"/>
-  <text x="485" y="316" text-anchor="middle" fill="white" font-size="9" font-weight="500">SSH / PrivEsc</text>
-  <text x="485" y="327" text-anchor="middle" fill="rgba(255,255,255,0.7)" font-size="8">(optional)</text>
-
-  <!-- Right side: services -->
-  <rect x="630" y="225" width="210" height="45" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1"/>
-  <text x="735" y="244" text-anchor="middle" fill="#fbbf24" font-size="10" font-weight="600">LLM Factory</text>
-  <text x="735" y="260" text-anchor="middle" fill="#64748b" font-size="9">OpenAI | Anthropic | Google | Ollama</text>
-
-  <rect x="630" y="280" width="210" height="35" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1"/>
-  <text x="735" y="302" text-anchor="middle" fill="#34d399" font-size="10" font-weight="600">EventBus (pub/sub)</text>
-
-  <rect x="630" y="325" width="210" height="35" rx="6" fill="#0f172a" stroke="#334155" stroke-width="1"/>
-  <text x="735" y="347" text-anchor="middle" fill="#f87171" font-size="10" font-weight="600">Redis Persistence</text>
-
-  <!-- Connector between backend services -->
-  <line x1="735" y1="270" x2="735" y2="280" stroke="#334155" stroke-width="1"/>
-  <line x1="735" y1="315" x2="735" y2="325" stroke="#334155" stroke-width="1"/>
-
-  <!-- Connection line backend to docker -->
-  <line x1="450" y1="415" x2="450" y2="445" stroke="#3b82f6" stroke-width="2" stroke-dasharray="6,3"/>
-  <polygon points="445,440 450,450 455,440" fill="#3b82f6"/>
-
-  <!-- ===== KNOWLEDGE SERVICE ===== -->
-  <rect x="640" y="420" width="210" height="55" rx="10" fill="#111827" stroke="#1e3a5f" stroke-width="1.5"/>
-  <text x="745" y="444" text-anchor="middle" fill="#60a5fa" font-size="11" font-weight="600">Knowledge Service</text>
-  <text x="745" y="462" text-anchor="middle" fill="#64748b" font-size="9">ChromaDB RAG</text>
-
-  <!-- Connection knowledge to backend -->
-  <line x1="735" y1="415" x2="735" y2="420" stroke="#334155" stroke-width="1" stroke-dasharray="4,2"/>
+  <!-- worker -> docker tools (through the gap between stores) -->
+  <line x1="450" y1="423" x2="450" y2="529" stroke="#3b82f6" stroke-width="2" stroke-dasharray="6,3"/>
+  <polygon points="445,524 450,534 455,524" fill="#3b82f6"/>
+  <text x="458" y="520" fill="#64748b" font-size="8">async subprocess</text>
 
   <!-- ===== DOCKER TOOLS LAYER ===== -->
-  <rect x="40" y="450" width="580" height="150" rx="10" fill="#111827" stroke="#1e3a5f" stroke-width="1.5"/>
-  <text x="330" y="475" text-anchor="middle" fill="#60a5fa" font-size="13" font-weight="600" letter-spacing="1.5">DOCKER — SECURITY TOOLS</text>
+  <rect x="40" y="529" width="820" height="150" rx="10" fill="#111827" stroke="#1e3a5f" stroke-width="1.5"/>
+  <text x="450" y="553" text-anchor="middle" fill="#60a5fa" font-size="13" font-weight="600" letter-spacing="1.5">DOCKER — SECURITY TOOLS (worker image)</text>
 
-  <!-- Tool boxes row 1 -->
-  <rect x="60"  y="492" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-  <text x="105" y="510" text-anchor="middle" fill="#e2e8f0" font-size="9">nmap</text>
+  <!-- row 1 -->
+  <rect x="55"  y="568" width="120" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="115" y="586" text-anchor="middle" fill="#e2e8f0" font-size="9">nmap</text>
+  <rect x="185" y="568" width="120" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="245" y="586" text-anchor="middle" fill="#e2e8f0" font-size="9">subfinder</text>
+  <rect x="315" y="568" width="120" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="375" y="586" text-anchor="middle" fill="#e2e8f0" font-size="9">httpx</text>
+  <rect x="445" y="568" width="120" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="505" y="586" text-anchor="middle" fill="#e2e8f0" font-size="9">nuclei</text>
+  <rect x="575" y="568" width="120" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="635" y="586" text-anchor="middle" fill="#e2e8f0" font-size="9">nikto</text>
+  <rect x="705" y="568" width="120" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="765" y="586" text-anchor="middle" fill="#e2e8f0" font-size="9">whatweb</text>
 
-  <rect x="158" y="492" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-  <text x="203" y="510" text-anchor="middle" fill="#e2e8f0" font-size="9">subfinder</text>
+  <!-- row 2 -->
+  <rect x="189" y="604" width="120" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="249" y="622" text-anchor="middle" fill="#e2e8f0" font-size="9">ffuf</text>
+  <rect x="323" y="604" width="120" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="383" y="622" text-anchor="middle" fill="#e2e8f0" font-size="9">gobuster</text>
+  <rect x="457" y="604" width="120" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="517" y="622" text-anchor="middle" fill="#e2e8f0" font-size="9">katana</text>
+  <rect x="591" y="604" width="120" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
+  <text x="651" y="622" text-anchor="middle" fill="#e2e8f0" font-size="9">theHarvester</text>
 
-  <rect x="256" y="492" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-  <text x="301" y="510" text-anchor="middle" fill="#e2e8f0" font-size="9">httpx</text>
-
-  <rect x="354" y="492" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-  <text x="399" y="510" text-anchor="middle" fill="#e2e8f0" font-size="9">nuclei</text>
-
-  <rect x="452" y="492" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-  <text x="497" y="510" text-anchor="middle" fill="#e2e8f0" font-size="9">nikto</text>
-
-  <!-- Tool boxes row 2 -->
-  <rect x="60"  y="528" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-  <text x="105" y="546" text-anchor="middle" fill="#e2e8f0" font-size="9">ffuf</text>
-
-  <rect x="158" y="528" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-  <text x="203" y="546" text-anchor="middle" fill="#e2e8f0" font-size="9">gobuster</text>
-
-  <rect x="256" y="528" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-  <text x="301" y="546" text-anchor="middle" fill="#e2e8f0" font-size="9">katana</text>
-
-  <rect x="354" y="528" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-  <text x="399" y="546" text-anchor="middle" fill="#e2e8f0" font-size="9">whatweb</text>
-
-  <rect x="452" y="528" width="90" height="28" rx="5" fill="#1e293b" stroke="#334155" stroke-width="1"/>
-  <text x="497" y="546" text-anchor="middle" fill="#e2e8f0" font-size="9">theHarvester</text>
-
-  <!-- Knowledge service connection to docker layer -->
-  <line x1="640" y1="448" x2="620" y2="448" stroke="#334155" stroke-width="1" stroke-dasharray="4,2"/>
-
+  <text x="450" y="654" text-anchor="middle" fill="#64748b" font-size="8.5">async subprocess execution · stdout/stderr/exit-code captured to ToolExecution</text>
 </svg>
