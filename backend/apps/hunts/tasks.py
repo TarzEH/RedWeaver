@@ -17,6 +17,9 @@ from .crew_factory import build_crew_factory
 from .models import Run, RunStatus
 from .observability_sink import make_event_callback
 
+# Register the OffSec task with Celery (autodiscover only imports tasks.py).
+from .offsec_tasks import generate_offsec_playbook  # noqa: E402,F401
+
 logger = logging.getLogger(__name__)
 
 
