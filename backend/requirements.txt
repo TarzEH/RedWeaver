@@ -1,9 +1,53 @@
-# RedWeaver backend - multi-agent bug hunting
-fastapi>=0.109.0,<1.0.0
-uvicorn[standard]>=0.27.0,<1.0.0
+# RedWeaver backend - multi-agent bug hunting (Django + DRF + Channels)
 python-dotenv>=1.0.0,<2.0.0
 
-# CrewAI (multi-agent orchestration)
+# ----------------------------------------------------------------------------
+# Web framework: Django + Django REST Framework
+# ----------------------------------------------------------------------------
+Django>=5.0,<5.2
+djangorestframework>=3.15
+djangorestframework-simplejwt>=5.3
+django-environ>=0.11
+django-cors-headers>=4.4
+drf-spectacular>=0.27
+
+# ----------------------------------------------------------------------------
+# Real-time: Django Channels (WebSocket) over Redis
+# ----------------------------------------------------------------------------
+channels>=4.1
+channels-redis>=4.2
+daphne>=4.1
+
+# ----------------------------------------------------------------------------
+# Async task execution: Celery (broker = Redis) for out-of-process crew.kickoff
+# ----------------------------------------------------------------------------
+celery>=5.4
+django-celery-results>=2.5
+
+# ----------------------------------------------------------------------------
+# PostgreSQL driver (system of record)
+# ----------------------------------------------------------------------------
+psycopg[binary]>=3.2
+
+# ----------------------------------------------------------------------------
+# Static serving (Django admin + DRF browsable API) inside the ASGI process
+# ----------------------------------------------------------------------------
+whitenoise>=6.7
+
+# ----------------------------------------------------------------------------
+# Screenshots: headless Chromium via Playwright
+# ----------------------------------------------------------------------------
+playwright>=1.47
+
+# ----------------------------------------------------------------------------
+# Image handling (Django ImageField) + secret encryption (ApiKeyVault Fernet)
+# ----------------------------------------------------------------------------
+Pillow>=10.4
+cryptography>=43.0
+
+# ----------------------------------------------------------------------------
+# CrewAI (multi-agent orchestration) -- unchanged engine
+# ----------------------------------------------------------------------------
 crewai[tools]>=0.108.0
 crewai-tools>=0.33.0
 
@@ -22,7 +66,7 @@ openai>=1.0.0,<2.0.0
 # Web search (free, no API key)
 duckduckgo-search>=6.0.0
 
-# Redis persistence
+# Redis client (Channels layer + Celery broker + live pub/sub)
 redis>=5.0.0,<6.0.0
 
 # HTML report rendering
@@ -31,7 +75,7 @@ jinja2>=3.1.0
 # HTML parsing (CVE database scraping)
 beautifulsoup4>=4.12.0
 
-# Data validation
+# Data validation (CrewAI structured outputs)
 pydantic>=2.0.0
 
 # YAML crew configs (agents.yaml / tasks.yaml)
@@ -43,6 +87,5 @@ paramiko>=3.5.0
 # HTTP client for knowledge microservice
 httpx>=0.27.0
 
-# Authentication
+# Password hashing (Django uses its own hashers, kept for legacy verification)
 passlib[bcrypt]>=1.7.4
-python-jose[cryptography]>=3.3.0
