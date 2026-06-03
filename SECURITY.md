@@ -15,8 +15,8 @@ Please **do not** open a public GitHub issue for undisclosed security vulnerabil
 
 - **Change the default demo password** after first login (see README). The seeded demo user exists only when the user store is empty.
 - Set **`JWT_SECRET`** in `.env` (or your orchestrator) so authentication tokens remain valid across backend restarts and are not predictable.
-- **Never commit** `.env`, API keys, or Redis dumps containing production data.
-- **Scope** CORS with `CORS_ORIGINS` when exposing the API beyond localhost.
+- **Never commit** `.env`, API keys, or database dumps containing production data.
+- **Scope** the CORS and CSRF allow-lists (`CSRF_TRUSTED_ORIGINS`, `ALLOWED_HOSTS`) when exposing the API beyond localhost.
 - Optional Redis Insight in `docker-compose.yml` is for **local debugging**; do not expose it publicly without authentication.
 
 ## Responsible use
