@@ -3,9 +3,9 @@ import { useEffect, useRef, useCallback, useState } from "react";
 const isDev = import.meta.env.DEV;
 
 interface UseSSEOptions {
-  /** URL to connect to. If null/undefined, no connection is made. */
+  /** WebSocket URL to connect to. If null/undefined, no connection is made. */
   url: string | null | undefined;
-  /** Called for each parsed SSE event. */
+  /** Called for each parsed event ({type, data, ...envelope}). */
   onEvent: (event: { type: string; data: Record<string, unknown> }) => void;
   /** Called on connection error. */
   onError?: (error: Event) => void;
@@ -16,79 +16,110 @@ interface UseSSEOptions {
 }
 
 /**
- * Generic SSE connection hook.
- * Manages EventSource lifecycle — connects when url is set, disconnects on unmount or url change.
+ * Run event-stream hook (Django Channels WebSocket).
+ *
+ * Keeps the original `useSSE` interface so callers are unchanged. Adds
+ * exponential-backoff reconnect (WebSocket has none) and resumes from the
+ * last received `seq` so the server replays only the gap from EventLog.
  */
 export function useSSE({ url, onEvent, onError, onOpen, onClose }: UseSSEOptions) {
-  const sourceRef = useRef<EventSource | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
+  const reconnectRef = useRef<number | null>(null);
+  const backoffRef = useRef(1000);
+  const closedTerminalRef = useRef(false);
+  const unmountedRef = useRef(false);
+  const lastSeqRef = useRef(0);
   const eventCountRef = useRef(0);
 
   const disconnect = useCallback(() => {
-    if (sourceRef.current) {
-      sourceRef.current.close();
-      sourceRef.current = null;
+    if (reconnectRef.current) {
+      clearTimeout(reconnectRef.current);
+      reconnectRef.current = null;
+    }
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
     }
     setConnected(false);
   }, []);
 
   useEffect(() => {
+    unmountedRef.current = false;
+    closedTerminalRef.current = false;
+    backoffRef.current = 1000;
+    lastSeqRef.current = 0;
+    eventCountRef.current = 0;
+
     if (!url) {
       disconnect();
       return;
     }
 
-    if (isDev) console.log("[SSE] Connecting to:", url);
-    eventCountRef.current = 0;
-    const es = new EventSource(url);
-    sourceRef.current = es;
+    const connect = () => {
+      const sep = url.includes("?") ? "&" : "?";
+      const fullUrl =
+        lastSeqRef.current > 0 ? `${url}${sep}last_seq=${lastSeqRef.current}` : url;
+      if (isDev) console.log("[WS] Connecting:", fullUrl);
+      const ws = new WebSocket(fullUrl);
+      wsRef.current = ws;
 
-    es.onopen = () => {
-      if (isDev) console.log("[SSE] Connected:", url);
-      setConnected(true);
-      onOpen?.();
-    };
+      ws.onopen = () => {
+        if (isDev) console.log("[WS] Connected");
+        setConnected(true);
+        backoffRef.current = 1000;
+        onOpen?.();
+      };
 
-    es.onerror = (e) => {
-      if (isDev) console.warn("[SSE] Error:", e, "readyState:", es.readyState);
-      onError?.(e);
-      // EventSource auto-reconnects on transient errors.
-      // If readyState is CLOSED it won't reconnect.
-      if (es.readyState === EventSource.CLOSED) {
-        if (isDev) console.warn("[SSE] Connection closed permanently");
+      ws.onmessage = (ev) => {
+        try {
+          const parsed = JSON.parse(ev.data);
+          if (typeof parsed.seq === "number") lastSeqRef.current = parsed.seq;
+          if (parsed.type === "replay_complete") return;
+
+          eventCountRef.current++;
+          if (isDev && (eventCountRef.current <= 5 || parsed.type !== "agent_thinking")) {
+            console.log(`[WS] Event #${eventCountRef.current}:`, parsed.type);
+          }
+
+          onEvent(parsed);
+
+          if (parsed.type === "hunt_complete" || parsed.type === "hunt_error") {
+            closedTerminalRef.current = true;
+            onClose?.();
+            ws.close();
+          }
+        } catch {
+          /* ignore malformed frames */
+        }
+      };
+
+      ws.onerror = (e) => {
+        if (isDev) console.warn("[WS] Error:", e);
+        onError?.(e);
+      };
+
+      ws.onclose = () => {
         setConnected(false);
-      }
+        wsRef.current = null;
+        if (!closedTerminalRef.current && !unmountedRef.current) {
+          const delay = Math.min(backoffRef.current, 10000);
+          if (isDev) console.log(`[WS] Reconnecting in ${delay}ms`);
+          reconnectRef.current = window.setTimeout(connect, delay);
+          backoffRef.current = Math.min(backoffRef.current * 2, 10000);
+        }
+      };
     };
 
-    es.onmessage = (event) => {
-      try {
-        const parsed = JSON.parse(event.data);
-        eventCountRef.current++;
-
-        // Log first few events and lifecycle events for debugging
-        if (isDev && (eventCountRef.current <= 5 || parsed.type !== "agent_thinking")) {
-          console.log(`[SSE] Event #${eventCountRef.current}:`, parsed.type);
-        }
-
-        onEvent(parsed);
-
-        // Auto-close on terminal events
-        if (parsed.type === "hunt_complete" || parsed.type === "hunt_error") {
-          if (isDev) console.log(`[SSE] Terminal: ${parsed.type} (total: ${eventCountRef.current} events)`);
-          onClose?.();
-          es.close();
-          sourceRef.current = null;
-          setConnected(false);
-        }
-      } catch {
-        // Ignore heartbeats or malformed JSON
-      }
-    };
+    connect();
 
     return () => {
-      if (isDev) console.log(`[SSE] Cleanup (received ${eventCountRef.current} events)`);
-      es.close();
-      sourceRef.current = null;
+      unmountedRef.current = true;
+      if (reconnectRef.current) clearTimeout(reconnectRef.current);
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
       setConnected(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps

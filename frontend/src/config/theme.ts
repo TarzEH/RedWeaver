@@ -69,3 +69,11 @@ export function getApiBase(): string {
   }
   return _apiBase;
 }
+
+/** WebSocket base URL (derives ws/wss from the API base or current origin). */
+export function getWsBase(): string {
+  const httpBase = getApiBase();
+  if (httpBase) return httpBase.replace(/^http/, "ws");
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${proto}//${window.location.host}`;
+}
