@@ -31,6 +31,7 @@ urlpatterns = [
 # --- App API routes (added per phase). Guarded so partial trees still boot. ---
 _API_INCLUDES = [
     ("api/auth/", "apps.accounts.urls"),
+    ("api/settings/", "apps.accounts.settings_urls"),
     ("api/", "apps.workspaces.urls"),
     ("api/", "apps.hunts.urls"),
     ("api/", "apps.findings.urls"),
