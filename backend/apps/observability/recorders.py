@@ -112,6 +112,15 @@ def _finding(run, data) -> None:
     title = data.get("title") or "Untitled"
     affected = data.get("affected_url") or data.get("url") or ""
     severity = (data.get("severity") or "info").lower()
+    # Best-effort EPSS enrichment (feeds confidence + real-world prioritization).
+    if data.get("cve_ids") and data.get("epss_score") is None:
+        try:
+            from apps.findings.enrichment import max_epss
+            epss = max_epss(data.get("cve_ids") or [])
+            if epss is not None:
+                data["epss_score"] = epss
+        except Exception:
+            pass
     f = Finding(
         run=run,
         session=run.session,
@@ -127,6 +136,7 @@ def _finding(run, data) -> None:
         cvss_score=data.get("cvss_score"),
         cve_ids=data.get("cve_ids") or [],
         cisa_kev=bool(data.get("cisa_kev")),
+        epss_score=data.get("epss_score"),
         exploitability=(data.get("exploitability") or "unknown").lower(),
         confidence=derive_confidence(data),
     )

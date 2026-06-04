@@ -12,7 +12,7 @@ class FindingSerializer(serializers.ModelSerializer):
         fields = ("id", "title", "severity", "description", "affected_url",
                   "evidence", "remediation", "agent_source", "tool_used",
                   "cvss_score", "cve_ids", "timestamp",
-                  "status", "confidence", "exploitability", "cisa_kev")
+                  "status", "confidence", "exploitability", "cisa_kev", "epss_score")
         read_only_fields = ("id", "timestamp")
 
 

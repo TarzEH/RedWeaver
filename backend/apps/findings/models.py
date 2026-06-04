@@ -93,6 +93,7 @@ class Finding(TimeStampedUUIDModel):
         default=Exploitability.UNKNOWN,
     )
     cisa_kev = models.BooleanField(default=False)
+    epss_score = models.FloatField(null=True, blank=True, help_text="EPSS exploit probability 0..1")
     verified_by_agent = models.CharField(max_length=64, blank=True, default="")
 
     # Deduplication
