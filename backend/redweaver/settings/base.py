@@ -159,6 +159,19 @@ REST_FRAMEWORK = {
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ),
+    # Rate limiting (brute-force / abuse protection). "auth" is a tight scope
+    # applied to login/register; "llm" guards the provider-proxy endpoints.
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.ScopedRateThrottle",
+    ),
+    "DEFAULT_THROTTLE_RATES": {
+        "user": env("THROTTLE_USER", default="2000/hour"),
+        "anon": env("THROTTLE_ANON", default="120/hour"),
+        "auth": env("THROTTLE_AUTH", default="20/min"),
+        "llm": env("THROTTLE_LLM", default="60/min"),
+    },
 }
 
 from datetime import timedelta  # noqa: E402
