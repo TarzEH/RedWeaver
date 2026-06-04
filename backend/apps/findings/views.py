@@ -53,3 +53,21 @@ def run_findings(request, run_id):
     if not getattr(request.user, "is_superuser", False):
         qs = qs.filter(finding_scope_q(request.user))
     return Response({"findings": FindingSerializer(qs, many=True).data})
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def run_attack_navigator(request, run_id):
+    """Export a MITRE ATT&CK Navigator layer (.json) for a run's findings —
+    a real engagement artifact that opens in the ATT&CK Navigator."""
+    from django.http import HttpResponse
+    import json
+    from apps.common.access import run_scope_q, scoped_get_or_404
+    from apps.hunts.models import Run
+    from .attack_map import navigator_layer
+
+    run = scoped_get_or_404(Run, request.user, run_scope_q, id=run_id)
+    layer = navigator_layer(run, list(run.findings.all()))
+    resp = HttpResponse(json.dumps(layer, indent=2), content_type="application/json")
+    resp["Content-Disposition"] = f'attachment; filename="redweaver-{str(run.id)[:8]}-attack-layer.json"'
+    return resp
