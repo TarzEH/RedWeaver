@@ -65,6 +65,19 @@ body {
   outline-offset: 2px;
 }
 
+/* ── Print: clean report (Save as PDF) ── */
+@media print {
+  :root, body { background: #fff !important; color: #111 !important; }
+  /* hide app chrome + interactive controls, keep the report */
+  aside, nav, .rw-no-print, .huntReportInfographic__header button { display: none !important; }
+  main { overflow: visible !important; }
+  .huntReportInfographic, .markdownRenderer, .offsecPlaybook {
+    box-shadow: none !important; border: none !important; background: #fff !important; color: #111 !important;
+  }
+  .huntReportInfographic__md, .markdownRenderer * { color: #111 !important; }
+  pre, code { background: #f4f4f5 !important; color: #111 !important; }
+}
+
 /* ── Animations ── */
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }

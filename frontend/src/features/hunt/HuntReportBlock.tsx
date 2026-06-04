@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { FileText, Download } from "lucide-react";
+import { FileText, Download, Printer } from "lucide-react";
 import { MarkdownRenderer } from "../../components/domain/MarkdownRenderer";
 import { Spinner } from "../../components/ui/Spinner";
 import { buildReportMarkdown } from "../report/buildReportMarkdown";
 import { api } from "../../services/api";
-import { ApiError } from "../../services/http";
+import { ApiError, getToken } from "../../services/http";
 import type { VulnerabilityReport } from "../../types/api";
 import { useHuntContext } from "../../contexts/HuntContext";
 
@@ -94,6 +94,33 @@ export function HuntReportBlock({ runId, onContentLoaded }: HuntReportBlockProps
 
   const markdown = buildReportMarkdown(report);
 
+  const downloadMd = () => {
+    const blob = new Blob([markdown], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `report-${runId.slice(0, 8)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadExport = async (fmt: "json" | "csv" | "sarif") => {
+    const token = getToken();
+    const res = await fetch(`/api/runs/${runId}/report/export?fmt=${fmt}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `redweaver-${runId.slice(0, 8)}.${fmt}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportBtn = "shrink-0 rounded-md border border-rw-border px-2 py-1.5 text-[10px] font-medium uppercase tracking-wider text-rw-muted transition-colors hover:border-rw-accent/40 hover:text-rw-text";
+
   return (
     <section className="huntReportInfographic animate-fade-in" aria-label="Penetration test report">
       <div className="huntReportInfographic__header">
@@ -106,22 +133,17 @@ export function HuntReportBlock({ runId, onContentLoaded }: HuntReportBlockProps
             <p className="text-[10px] text-rw-dim truncate font-mono">{report.target}</p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => {
-            const blob = new Blob([markdown], { type: "text/markdown" });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `report-${runId.slice(0, 8)}.md`;
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
-          className="shrink-0 flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wider text-sky-300/90 hover:text-sky-200 border border-sky-500/30 rounded-md px-2 py-1.5 transition-colors"
-        >
-          <Download size={12} />
-          .md
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button type="button" onClick={downloadMd} className={`${exportBtn} inline-flex items-center gap-1`} title="Download Markdown">
+            <Download size={12} /> MD
+          </button>
+          <button type="button" onClick={() => downloadExport("json")} className={exportBtn} title="Download JSON">JSON</button>
+          <button type="button" onClick={() => downloadExport("csv")} className={exportBtn} title="Download CSV">CSV</button>
+          <button type="button" onClick={() => downloadExport("sarif")} className={exportBtn} title="Download SARIF (CI/CD)">SARIF</button>
+          <button type="button" onClick={() => window.print()} className={`${exportBtn} inline-flex items-center gap-1`} title="Print / Save as PDF">
+            <Printer size={12} /> PDF
+          </button>
+        </div>
       </div>
       <div className="huntReportInfographic__body">
         <MarkdownRenderer content={markdown} variant="enhanced" className="huntReportInfographic__md" />
