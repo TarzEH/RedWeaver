@@ -14,7 +14,8 @@
     /* Text */
     --color-rw-text: #f1f5f9;
     --color-rw-muted: #94a3b8;
-    --color-rw-dim: #64748b;
+    /* dim bumped from #64748b (~4:1, fails WCAG AA at small sizes) to ~5.4:1 */
+    --color-rw-dim: #8b9cb3;
 
     /* Accent — Electric Blue */
     --color-rw-accent: #3b82f6;
@@ -22,6 +23,12 @@
     --color-rw-danger: #ef4444;
     --color-rw-success: #10b981;
     --color-rw-warning: #f59e0b;
+
+    /* Type families — Inter (UI) + JetBrains Mono (terminal/code/CVSS) */
+    --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
+      "Segoe UI", Roboto, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono",
+      Menlo, Consolas, monospace;
   }
 }
 
@@ -31,8 +38,7 @@
 
 body {
   margin: 0;
-  font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, sans-serif;
+  font-family: var(--font-sans);
   background: var(--color-rw-bg);
   color: var(--color-rw-text);
   -webkit-font-smoothing: antialiased;

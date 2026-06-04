@@ -16,6 +16,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+# The Python "lib/" ignore above is unanchored; keep the frontend's src/lib tracked.
+!frontend/src/lib/
 parts/
 sdist/
 var/
