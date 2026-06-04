@@ -4,6 +4,7 @@ Run and Hunt are the same model exposed two ways for frontend compatibility.
 Execution (start/stop/chat -> Celery) is wired in Phase F; the start/stop
 actions here update status and enqueue when the task is available.
 """
+from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -46,12 +47,21 @@ class RunViewSet(
 
 
 def _enqueue_run(run: Run) -> None:
-    """Enqueue execution if the Celery task exists (wired in Phase F)."""
+    """Enqueue execution with a per-run soft timeout, recording the task id so
+    the run can be cancelled later."""
     try:
         from .tasks import execute_run
     except Exception:
         return
-    execute_run.delay(str(run.id))
+    soft = run.timeout_seconds or None
+    task = execute_run.apply_async(
+        (str(run.id),),
+        soft_time_limit=soft,
+        time_limit=(soft + 60) if soft else None,
+    )
+    if task and getattr(task, "id", None):
+        run.celery_task_id = task.id
+        run.save(update_fields=["celery_task_id", "updated_at"])
 
 
 class HuntViewSet(ScopedQuerysetMixin, viewsets.ModelViewSet):
@@ -84,8 +94,15 @@ class HuntViewSet(ScopedQuerysetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"])
     def stop(self, request, pk=None):
         run = self.get_object()
+        if run.celery_task_id:
+            try:
+                from celery.result import AsyncResult
+                AsyncResult(run.celery_task_id).revoke(terminate=True, signal="SIGTERM")
+            except Exception:
+                pass
         run.status = "cancelled"
-        run.save(update_fields=["status", "updated_at"])
+        run.completed_at = run.completed_at or timezone.now()
+        run.save(update_fields=["status", "completed_at", "updated_at"])
         return Response(HuntSerializer(run, context={"request": request}).data)
 
 

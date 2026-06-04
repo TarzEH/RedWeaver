@@ -176,9 +176,16 @@ class Run(TimeStampedUUIDModel):
         default=RunStatus.QUEUED,
         db_index=True,
     )
+    celery_task_id = models.CharField(max_length=64, blank=True, default="")
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(blank=True, default="")
+
+    # LLM cost accounting (captured from CrewAI token usage after kickoff)
+    prompt_tokens = models.IntegerField(default=0)
+    completion_tokens = models.IntegerField(default=0)
+    total_tokens = models.IntegerField(default=0)
+    cost_usd = models.DecimalField(max_digits=10, decimal_places=4, default=0)
 
     # Artifacts (report kept for the report API; messages = chat transcript)
     report_markdown = models.TextField(blank=True, default="")

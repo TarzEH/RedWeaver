@@ -187,6 +187,8 @@ class RunDetailSerializer(RunSummarySerializer):
     class Meta(RunSummarySerializer.Meta):
         fields = RunSummarySerializer.Meta.fields + (
             "messages", "graph_state", "scope", "objective",
+            "prompt_tokens", "completion_tokens", "total_tokens", "cost_usd",
+            "error_message",
         )
 
     def get_graph_state(self, obj):

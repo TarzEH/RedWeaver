@@ -47,8 +47,8 @@ class ChatView(APIView):
         )
 
         try:
-            from .tasks import execute_run
-            execute_run.delay(str(run.id))
+            from .views import _enqueue_run
+            _enqueue_run(run)  # apply_async with soft timeout + records task id
         except Exception:
             pass
 
