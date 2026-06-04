@@ -59,7 +59,12 @@ function markdownToHtml(md: string): string {
   html = html.replace(/\*\*\*(.+?)\*\*\*/g, "<strong><em>$1</em></strong>");
   html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a class="mdLink" href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text, href) => {
+    // Block dangerous URI schemes (javascript:, data:, vbscript:) — defense in
+    // depth on top of the up-front escapeHtml.
+    const safe = /^\s*(javascript|data|vbscript):/i.test(href) ? "#" : href;
+    return `<a class="mdLink" href="${safe}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+  });
   html = html.replace(/^---$/gm, '<hr class="mdHr" />');
   html = html.replace(/^\d+\. (.+)$/gm, '<li class="mdOlLi">$1</li>');
   html = html.replace(/((?:<li class="mdOlLi">.*<\/li>\n?)+)/g, '<ol class="mdOl">$1</ol>');

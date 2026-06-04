@@ -6,7 +6,6 @@ import { StatusBadge } from "../../components/ui/StatusBadge";
 import { SeverityBadge } from "../../components/ui/SeverityBadge";
 import { Spinner } from "../../components/ui/Spinner";
 import { Button } from "../../components/ui/Button";
-import { Input } from "../../components/ui/Input";
 import { IconButton } from "../../components/ui/IconButton";
 import { groupMessages } from "../../utils/messageGrouping";
 import { filterDuplicateReportFromMessages } from "../../utils/filterReportChat";
@@ -94,7 +93,7 @@ export function ChatPanel({ selectedRunId, onSelectRun, onRunDeleted }: ChatPane
     scrollThreadToEnd();
   }, [stream.steps.length, chatReplies.length, scrollThreadToEnd]);
 
-  const sendMessage = (e: React.FormEvent) => {
+  const sendMessage = (e: { preventDefault: () => void }) => {
     e.preventDefault();
     const text = message.trim();
     if (!text) return;
@@ -361,12 +360,24 @@ export function ChatPanel({ selectedRunId, onSelectRun, onRunDeleted }: ChatPane
 
       {/* Input bar */}
       <div className="border-t border-rw-border p-3">
-        <form onSubmit={sendMessage} className="flex items-center gap-2">
-          <Input
-            placeholder="Enter a target URL or describe what to scan..."
+        <form onSubmit={sendMessage} className="flex items-end gap-2">
+          <textarea
+            placeholder="Enter a target URL or describe what to scan…  (Enter to send · Shift+Enter for newline)"
             value={message}
-            onChange={(e) => setMessage(e.target.value)}
+            onChange={(e) => {
+              setMessage(e.target.value);
+              e.target.style.height = "auto";
+              e.target.style.height = `${Math.min(e.target.scrollHeight, 128)}px`;
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                if (message.trim() && !loading) sendMessage(e);
+              }
+            }}
             disabled={loading}
+            rows={1}
+            className="max-h-32 flex-1 resize-none rounded-lg border border-rw-border bg-rw-input px-3 py-2 text-sm text-rw-text outline-none placeholder:text-rw-dim focus:border-rw-accent"
           />
           <Button type="submit" disabled={loading || !message.trim()} icon={<Send size={14} />}>
             {selectedRun ? "Send" : "Hunt"}
