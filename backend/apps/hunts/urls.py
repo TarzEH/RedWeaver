@@ -9,6 +9,7 @@ from .views import (
     RunViewSet,
     SessionViewSet,
     TargetViewSet,
+    run_ask,
     run_offsec,
 )
 
@@ -22,5 +23,6 @@ router.register("notification-channels", NotificationChannelViewSet, basename="n
 urlpatterns = [
     path("chat", ChatView.as_view(), name="chat"),
     path("runs/<uuid:run_id>/offsec", run_offsec, name="run-offsec"),
+    path("runs/<uuid:run_id>/ask", run_ask, name="run-ask"),
     *router.urls,
 ]

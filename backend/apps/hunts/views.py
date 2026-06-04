@@ -4,6 +4,8 @@ Run and Hunt are the same model exposed two ways for frontend compatibility.
 Execution (start/stop/chat -> Celery) is wired in Phase F; the start/stop
 actions here update status and enqueue when the task is available.
 """
+import json
+
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
@@ -171,6 +173,44 @@ class NotificationChannelViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def run_ask(request, run_id):
+    """Ask-your-pentest: a grounded Q&A over THIS run's findings + report."""
+    run = scoped_get_or_404(Run, request.user, run_scope_q, id=run_id)
+    question = (request.data.get("question") or "").strip()
+    if not question:
+        return Response({"error": "question required"}, status=400)
+
+    from apps.accounts.keys import keys_provider_for_user
+    from apps.findings.serializers import FindingSerializer
+    from redweaver_engine.llm_factory import LLMFactory
+
+    from .crew_factory import _build_crewai_llm
+
+    kp = keys_provider_for_user(run.created_by or request.user)
+    lf = LLMFactory(kp)
+    if not lf.has_api_key():
+        return Response({"error": "No LLM API key configured"}, status=400)
+
+    findings = FindingSerializer(run.findings.all(), many=True).data
+    context = json.dumps(findings, default=str)[:9000]
+    report = (run.report_markdown or "")[:6000]
+    prompt = (
+        f"You are a security analyst. Answer the question about THIS authorized "
+        f"penetration test of {run.target} using ONLY the findings and report "
+        f"below. Be concise, cite specific findings/CVEs, and say if the data is "
+        f"insufficient.\n\nFINDINGS (JSON):\n{context}\n\nREPORT:\n{report}\n\n"
+        f"QUESTION: {question}"
+    )
+    try:
+        llm = _build_crewai_llm(lf, kp.get_all())
+        answer = llm.call([{"role": "user", "content": prompt}])
+    except Exception as exc:  # noqa: BLE001
+        return Response({"error": str(exc)}, status=500)
+    return Response({"answer": str(answer), "question": question})
 
 
 @api_view(["GET", "POST"])
