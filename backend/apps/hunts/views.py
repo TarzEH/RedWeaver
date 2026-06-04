@@ -8,7 +8,14 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from django.shortcuts import get_object_or_404
+
+from apps.common.access import (
+    ScopedQuerysetMixin,
+    run_scope_q,
+    scoped_get_or_404,
+    session_scope_q,
+    target_scope_q,
+)
 
 from .models import Run, Session, Target
 from .serializers import (
@@ -25,12 +32,14 @@ from .serializers import (
 
 
 class RunViewSet(
+    ScopedQuerysetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.DestroyModelMixin,
     viewsets.GenericViewSet,
 ):
     queryset = Run.objects.all().select_related("session", "workspace")
+    scope_q = staticmethod(run_scope_q)
 
     def get_serializer_class(self):
         return RunDetailSerializer if self.action == "retrieve" else RunSummarySerializer
@@ -45,8 +54,9 @@ def _enqueue_run(run: Run) -> None:
     execute_run.delay(str(run.id))
 
 
-class HuntViewSet(viewsets.ModelViewSet):
+class HuntViewSet(ScopedQuerysetMixin, viewsets.ModelViewSet):
     queryset = Run.objects.all().select_related("session", "workspace", "target_obj")
+    scope_q = staticmethod(run_scope_q)
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -59,6 +69,9 @@ class HuntViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         sid = self.request.query_params.get("session_id")
         return qs.filter(session_id=sid) if sid else qs
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
 
     @action(detail=True, methods=["post"])
     def start(self, request, pk=None):
@@ -76,8 +89,9 @@ class HuntViewSet(viewsets.ModelViewSet):
         return Response(HuntSerializer(run, context={"request": request}).data)
 
 
-class SessionViewSet(viewsets.ModelViewSet):
+class SessionViewSet(ScopedQuerysetMixin, viewsets.ModelViewSet):
     queryset = Session.objects.all().select_related("workspace")
+    scope_q = staticmethod(session_scope_q)
 
     def get_serializer_class(self):
         if self.action in ("create", "update", "partial_update"):
@@ -89,6 +103,9 @@ class SessionViewSet(viewsets.ModelViewSet):
         wid = self.request.query_params.get("workspace_id")
         return qs.filter(workspace_id=wid) if wid else qs
 
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
     @action(detail=True, methods=["post"], url_path=r"targets/(?P<target_id>[^/.]+)")
     def link_target(self, request, pk=None, target_id=None):
         session = self.get_object()
@@ -98,8 +115,9 @@ class SessionViewSet(viewsets.ModelViewSet):
         return Response({"status": "linked"})
 
 
-class TargetViewSet(viewsets.ModelViewSet):
+class TargetViewSet(ScopedQuerysetMixin, viewsets.ModelViewSet):
     queryset = Target.objects.all()
+    scope_q = staticmethod(target_scope_q)
 
     def get_serializer_class(self):
         if self.action in ("create", "update", "partial_update"):
@@ -120,7 +138,7 @@ class TargetViewSet(viewsets.ModelViewSet):
 @permission_classes([IsAuthenticated])
 def run_offsec(request, run_id):
     """GET -> {status, markdown}; POST -> enqueue the OffSec playbook agent."""
-    run = get_object_or_404(Run, id=run_id)
+    run = scoped_get_or_404(Run, request.user, run_scope_q, id=run_id)
     if request.method == "POST":
         if run.offsec_status not in ("running", "queued"):
             run.offsec_status = "queued"

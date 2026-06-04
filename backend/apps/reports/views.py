@@ -1,11 +1,11 @@
 """Report endpoints — assemble VulnerabilityReport from a run's findings."""
 from collections import Counter
 
-from django.shortcuts import get_object_or_404
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from apps.common.access import run_scope_q, scoped_get_or_404
 from apps.findings.serializers import FindingSerializer
 from apps.hunts.models import Run
 
@@ -115,5 +115,5 @@ def build_report(run: Run) -> dict:
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def run_report(request, run_id):
-    run = get_object_or_404(Run, id=run_id)
+    run = scoped_get_or_404(Run, request.user, run_scope_q, id=run_id)
     return Response(build_report(run))

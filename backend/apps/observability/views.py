@@ -1,7 +1,10 @@
 """Read-only observability endpoints (the behind-the-scenes debug API)."""
+from django.http import Http404
 from rest_framework import generics
 
+from apps.common.access import run_scope_q
 from apps.common.pagination import DefaultPagination
+from apps.hunts.models import Run
 
 from .models import (
     AgentStep,
@@ -26,10 +29,19 @@ class _RunScopedList(generics.ListAPIView):
     ordering = ("sequence",)
     pagination_class = DefaultPagination
 
+    def _check_run_access(self):
+        run_id = self.kwargs["run_id"]
+        user = self.request.user
+        run_qs = Run.objects.filter(id=run_id)
+        if not getattr(user, "is_superuser", False):
+            run_qs = run_qs.filter(run_scope_q(user))
+        if not run_qs.exists():
+            raise Http404("Run not found")
+        return run_id
+
     def get_queryset(self):
-        return self.model.objects.filter(
-            run_id=self.kwargs["run_id"]
-        ).order_by(*self.ordering)
+        run_id = self._check_run_access()
+        return self.model.objects.filter(run_id=run_id).order_by(*self.ordering)
 
 
 class ToolExecutionListView(_RunScopedList):

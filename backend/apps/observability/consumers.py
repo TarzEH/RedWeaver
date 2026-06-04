@@ -19,6 +19,9 @@ class RunConsumer(AsyncWebsocketConsumer):
         if not user or not getattr(user, "is_authenticated", False):
             await self.close(code=4401)
             return
+        if not await self._can_access_run(user):
+            await self.close(code=4403)  # authenticated but not authorized for this run
+            return
         self.group = f"run_{self.run_id}"
         await self.channel_layer.group_add(self.group, self.channel_name)
         await self.accept()
@@ -46,6 +49,15 @@ class RunConsumer(AsyncWebsocketConsumer):
     async def run_event(self, message):
         """Handler for channel_layer.group_send(type='run.event')."""
         await self.send(text_data=json.dumps(message["envelope"]))
+
+    @database_sync_to_async
+    def _can_access_run(self, user) -> bool:
+        from apps.common.access import run_scope_q
+        from apps.hunts.models import Run
+
+        if getattr(user, "is_superuser", False):
+            return Run.objects.filter(id=self.run_id).exists()
+        return Run.objects.filter(run_scope_q(user)).filter(id=self.run_id).exists()
 
     @database_sync_to_async
     def _fetch(self, after):
