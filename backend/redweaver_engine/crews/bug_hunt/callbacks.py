@@ -96,6 +96,12 @@ def _extract_findings_from_output(output: Any, agent_name: str) -> list[dict[str
             "tool_used": f.get("tool_used") or f.get("tool") or "",
             "cvss_score": f.get("cvss_score"),
             "cve_ids": f.get("cve_ids") or [],
+            # These three were previously dropped here, so every persisted finding
+            # fell back to KEV=False / exploitability="unknown" and clustered at the
+            # 0.4 confidence prior. They exist on the FindingItem schema — keep them.
+            "cisa_kev": bool(f.get("cisa_kev")),
+            "exploitability": (f.get("exploitability") or "unknown").lower(),
+            "confidence": f.get("confidence"),
             "timestamp": f.get("timestamp") or now,
         })
     return findings
