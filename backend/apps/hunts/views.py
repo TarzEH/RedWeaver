@@ -17,12 +17,14 @@ from apps.common.access import (
     session_scope_q,
     target_scope_q,
 )
+from apps.common.permissions import RoleWritePermission
 
-from .models import Run, Session, Target
+from .models import NotificationChannel, Run, Session, Target
 from .serializers import (
     HuntCreateSerializer,
     HuntDetailSerializer,
     HuntSerializer,
+    NotificationChannelSerializer,
     RunDetailSerializer,
     RunSummarySerializer,
     SessionSerializer,
@@ -41,6 +43,7 @@ class RunViewSet(
 ):
     queryset = Run.objects.all().select_related("session", "workspace")
     scope_q = staticmethod(run_scope_q)
+    permission_classes = [IsAuthenticated, RoleWritePermission]
 
     def get_serializer_class(self):
         return RunDetailSerializer if self.action == "retrieve" else RunSummarySerializer
@@ -67,6 +70,7 @@ def _enqueue_run(run: Run) -> None:
 class HuntViewSet(ScopedQuerysetMixin, viewsets.ModelViewSet):
     queryset = Run.objects.all().select_related("session", "workspace", "target_obj")
     scope_q = staticmethod(run_scope_q)
+    permission_classes = [IsAuthenticated, RoleWritePermission]
 
     def get_serializer_class(self):
         if self.action == "create":
@@ -109,6 +113,7 @@ class HuntViewSet(ScopedQuerysetMixin, viewsets.ModelViewSet):
 class SessionViewSet(ScopedQuerysetMixin, viewsets.ModelViewSet):
     queryset = Session.objects.all().select_related("workspace")
     scope_q = staticmethod(session_scope_q)
+    permission_classes = [IsAuthenticated, RoleWritePermission]
 
     def get_serializer_class(self):
         if self.action in ("create", "update", "partial_update"):
@@ -135,6 +140,7 @@ class SessionViewSet(ScopedQuerysetMixin, viewsets.ModelViewSet):
 class TargetViewSet(ScopedQuerysetMixin, viewsets.ModelViewSet):
     queryset = Target.objects.all()
     scope_q = staticmethod(target_scope_q)
+    permission_classes = [IsAuthenticated, RoleWritePermission]
 
     def get_serializer_class(self):
         if self.action in ("create", "update", "partial_update"):
@@ -149,6 +155,22 @@ class TargetViewSet(ScopedQuerysetMixin, viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         kwargs["partial"] = True  # treat PUT as partial (frontend sends sparse bodies)
         return super().update(request, *args, **kwargs)
+
+
+class NotificationChannelViewSet(viewsets.ModelViewSet):
+    """Outbound webhook/Slack channels, scoped to the owner."""
+    serializer_class = NotificationChannelSerializer
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+
+    def get_queryset(self):
+        u = self.request.user
+        qs = NotificationChannel.objects.all()
+        if getattr(u, "is_superuser", False):
+            return qs
+        return qs.filter(created_by=u)
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
 
 
 @api_view(["GET", "POST"])

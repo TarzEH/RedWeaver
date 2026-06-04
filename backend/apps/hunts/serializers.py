@@ -3,7 +3,7 @@ from rest_framework import serializers
 
 from apps.findings.serializers import FindingSerializer
 
-from .models import Run, Session, Target
+from .models import NotificationChannel, Run, Session, Target
 
 
 def _sid(value) -> str | None:
@@ -152,6 +152,13 @@ def _graph_state(run: Run) -> dict:
     ]
     base["findings"] = FindingSerializer(run.findings.all(), many=True).data
     return base
+
+
+class NotificationChannelSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NotificationChannel
+        fields = ("id", "name", "kind", "url", "events", "enabled", "workspace", "created_at")
+        read_only_fields = ("id", "created_at")
 
 
 class RunSummarySerializer(serializers.ModelSerializer):

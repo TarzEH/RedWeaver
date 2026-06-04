@@ -203,6 +203,35 @@ class Run(TimeStampedUUIDModel):
             models.Index(fields=["status"]),
         ]
 
+
+class NotificationChannel(TimeStampedUUIDModel):
+    """Outbound notification target (generic webhook / Slack-compatible) fired
+    on run completion or critical findings."""
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="notification_channels",
+    )
+    workspace = models.ForeignKey(
+        "workspaces.Workspace", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="notification_channels",
+    )
+    name = models.CharField(max_length=128)
+    kind = models.CharField(
+        max_length=16,
+        choices=[("webhook", "Webhook"), ("slack", "Slack")],
+        default="webhook",
+    )
+    url = models.URLField(max_length=1024)
+    events = models.JSONField(default=list, blank=True)  # [] = all; else subset
+    enabled = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.name} ({self.kind})"
+
     def __str__(self) -> str:
         return f"Run<{self.id}> {self.target} [{self.status}]"
 

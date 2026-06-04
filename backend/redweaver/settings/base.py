@@ -250,3 +250,23 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler"}},
     "root": {"handlers": ["console"], "level": env("LOG_LEVEL", default="INFO")},
 }
+
+# ---------------------------------------------------------------------------
+# Error monitoring (Sentry) — only initialized when SENTRY_DSN is configured.
+# ---------------------------------------------------------------------------
+SENTRY_DSN = env("SENTRY_DSN", default="")
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.celery import CeleryIntegration
+        from sentry_sdk.integrations.django import DjangoIntegration
+
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            integrations=[DjangoIntegration(), CeleryIntegration()],
+            traces_sample_rate=env.float("SENTRY_TRACES_SAMPLE_RATE", default=0.0),
+            send_default_pii=False,
+            environment=env("DJANGO_ENV", default="dev"),
+        )
+    except Exception:  # never let monitoring setup break boot
+        pass

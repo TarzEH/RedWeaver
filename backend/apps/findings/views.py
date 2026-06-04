@@ -5,6 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.common.access import ScopedQuerysetMixin, finding_scope_q
+from apps.common.permissions import RoleWritePermission
 
 from .models import Finding
 from .serializers import FindingSerializer, FindingTriageSerializer
@@ -23,6 +24,7 @@ class FindingViewSet(
     serializer_class = FindingSerializer
     search_fields = ("title", "affected_url", "description")
     scope_q = staticmethod(finding_scope_q)
+    permission_classes = [IsAuthenticated, RoleWritePermission]
 
     def get_serializer_class(self):
         if self.action in ("update", "partial_update"):
@@ -71,3 +73,38 @@ def run_attack_navigator(request, run_id):
     resp = HttpResponse(json.dumps(layer, indent=2), content_type="application/json")
     resp["Content-Disposition"] = f'attachment; filename="redweaver-{str(run.id)[:8]}-attack-layer.json"'
     return resp
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def run_compare(request, run_id):
+    """Delta between a run and a ?baseline=<run_id>: new / fixed / recurring
+    findings keyed by dedup_key — the core 'are we getting better?' loop."""
+    from apps.common.access import run_scope_q, scoped_get_or_404
+    from apps.hunts.models import Run
+
+    baseline_id = request.query_params.get("baseline")
+    if not baseline_id:
+        return Response({"error": "baseline query param required"}, status=400)
+    cur = scoped_get_or_404(Run, request.user, run_scope_q, id=run_id)
+    base = scoped_get_or_404(Run, request.user, run_scope_q, id=baseline_id)
+
+    def fmap(run):
+        m = {}
+        for f in run.findings.all():
+            m[f.dedup_key or f.compute_dedup_key()] = f
+        return m
+
+    cur_m, base_m = fmap(cur), fmap(base)
+    new_k = [k for k in cur_m if k not in base_m]
+    fixed_k = [k for k in base_m if k not in cur_m]
+    recur_k = [k for k in cur_m if k in base_m]
+    ser = lambda fs: FindingSerializer(fs, many=True).data  # noqa: E731
+    return Response({
+        "run_id": str(cur.id),
+        "baseline_id": str(base.id),
+        "new": ser([cur_m[k] for k in new_k]),
+        "fixed": ser([base_m[k] for k in fixed_k]),
+        "recurring": ser([cur_m[k] for k in recur_k]),
+        "summary": {"new": len(new_k), "fixed": len(fixed_k), "recurring": len(recur_k)},
+    })

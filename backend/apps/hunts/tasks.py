@@ -122,6 +122,13 @@ def execute_run(self, run_id: str) -> None:
                 "findings_count": findings_count,
                 "agents_completed": completed,
             })
+            try:
+                from collections import Counter
+                from .notify import notify_run_complete
+                sev = dict(Counter(run.findings.values_list("severity", flat=True)))
+                notify_run_complete(run, findings_count, sev)
+            except Exception:
+                pass
         except SoftTimeLimitExceeded:
             logger.warning("execute_run timed out for %s", run_id)
             run.status = RunStatus.FAILED

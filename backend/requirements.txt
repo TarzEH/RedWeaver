@@ -90,3 +90,6 @@ httpx>=0.27.0
 
 # Password hashing (Django uses its own hashers, kept for legacy verification)
 passlib[bcrypt]>=1.7.4
+
+# Error monitoring (active only when SENTRY_DSN is set)
+sentry-sdk[django]>=2.0.0
