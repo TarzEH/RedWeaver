@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Swords, Terminal, Activity, Image as ImageIcon, ListTree } from "lucide-react";
+import { Swords, Terminal, Activity, Image as ImageIcon, ListTree, Crosshair } from "lucide-react";
 import { api } from "../../services/api";
+import { getToken } from "../../services/http";
 import type {
   AgentStepRow,
   EventLogRow,
@@ -102,6 +103,26 @@ export function DebugPage() {
     }, 3000);
   }, [runId, toast]);
 
+  const downloadAttackLayer = async () => {
+    if (!runId) return;
+    const token = getToken();
+    const res = await fetch(`/api/runs/${runId}/attack-navigator`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) {
+      toast.error("Could not export the ATT&CK layer");
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `redweaver-${runId.slice(0, 8)}-attack-layer.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("ATT&CK Navigator layer downloaded");
+  };
+
   const busy = offsecStatus === "queued" || offsecStatus === "running";
   const count: Record<Tab, number | undefined> = {
     offsec: undefined,
@@ -155,6 +176,9 @@ export function DebugPage() {
               icon={!busy ? <Swords size={14} /> : undefined}
             >
               {busy ? "Generating…" : offsecMd ? "Regenerate playbook" : "Generate OffSec playbook"}
+            </Button>
+            <Button variant="secondary" onClick={downloadAttackLayer} icon={<Crosshair size={14} />}>
+              ATT&CK layer
             </Button>
             <span className="text-xs text-rw-dim">
               Offensive-security agent · KB + web research over the findings · status:{" "}
