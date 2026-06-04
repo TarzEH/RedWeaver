@@ -149,6 +149,21 @@ def run_report_export(request, run_id):
         resp["Content-Disposition"] = f'attachment; filename="{base}.json"'
         return resp
 
+    if fmt == "html":
+        try:
+            from redweaver_engine.reports import generate_report_data, render_html_report
+            data = generate_report_data(
+                run_id=str(run.id), target=run.target or "", scope=run.scope or "",
+                objective=run.objective or "comprehensive", findings=findings,
+                report_markdown=run.report_markdown or "",
+            )
+            html = render_html_report(data)
+        except Exception as exc:  # noqa: BLE001
+            return Response({"error": f"html render failed: {exc}"}, status=500)
+        resp = HttpResponse(html, content_type="text/html")
+        resp["Content-Disposition"] = f'attachment; filename="{base}.html"'
+        return resp
+
     if fmt == "csv":
         buf = io.StringIO()
         w = csv.writer(buf)

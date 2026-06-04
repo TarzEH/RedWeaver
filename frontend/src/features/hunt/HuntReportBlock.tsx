@@ -104,7 +104,7 @@ export function HuntReportBlock({ runId, onContentLoaded }: HuntReportBlockProps
     URL.revokeObjectURL(url);
   };
 
-  const downloadExport = async (fmt: "json" | "csv" | "sarif") => {
+  const downloadExport = async (fmt: "json" | "csv" | "sarif" | "html") => {
     const token = getToken();
     const res = await fetch(`/api/runs/${runId}/report/export?fmt=${fmt}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -137,6 +137,7 @@ export function HuntReportBlock({ runId, onContentLoaded }: HuntReportBlockProps
           <button type="button" onClick={downloadMd} className={`${exportBtn} inline-flex items-center gap-1`} title="Download Markdown">
             <Download size={12} /> MD
           </button>
+          <button type="button" onClick={() => downloadExport("html")} className={exportBtn} title="Download HTML report">HTML</button>
           <button type="button" onClick={() => downloadExport("json")} className={exportBtn} title="Download JSON">JSON</button>
           <button type="button" onClick={() => downloadExport("csv")} className={exportBtn} title="Download CSV">CSV</button>
           <button type="button" onClick={() => downloadExport("sarif")} className={exportBtn} title="Download SARIF (CI/CD)">SARIF</button>
