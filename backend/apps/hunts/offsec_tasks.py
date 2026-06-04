@@ -116,7 +116,7 @@ def _kb_query(q: str, top_k: int = 3) -> list:
     # Fast/accurate retrieval straight from the Postgres pgvector RAG (no HTTP).
     try:
         from apps.knowledge.search import kb_search
-        return kb_search(q, top_k=top_k, min_score=0.05)
+        return kb_search(q, top_k=top_k, min_score=0.18)
     except Exception:
         return []
 

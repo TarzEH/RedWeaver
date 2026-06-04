@@ -62,11 +62,13 @@ class KnowledgeTool(BaseTool):
     ) -> str:
         """Query the KB — Postgres pgvector RAG first, HTTP service as fallback."""
         k = min(max(top_k, 1), 20)
+        cat = category.strip() if isinstance(category, str) and category.strip() else None
         # Primary: Postgres pgvector RAG (registered by Django at startup).
         try:
             from redweaver_engine.tools import instrumentation as _instr
 
-            results = _instr.kb_search(query, k)
+            # min_score drops near-noise chunks; category restricts to a topic.
+            results = _instr.kb_search(query, k, min_score=0.18, category=cat)
             if results is not None:
                 return json.dumps({
                     "status": "success", "query": query,

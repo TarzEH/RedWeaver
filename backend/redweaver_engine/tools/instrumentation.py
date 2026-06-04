@@ -112,12 +112,21 @@ def set_kb_searcher(fn: Optional[KbSearcher]) -> None:
     _kb_searcher = fn
 
 
-def kb_search(query: str, top_k: int = 5):
-    """Query the KB via the registered pgvector searcher (None if unset)."""
+def kb_search(query: str, top_k: int = 5, min_score: float = 0.0, category: Optional[str] = None):
+    """Query the KB via the registered pgvector searcher (None if unset).
+
+    ``min_score`` and ``category`` are forwarded when the registered searcher
+    accepts them; falls back to the legacy ``(query, top_k)`` signature otherwise.
+    """
     if _kb_searcher is None:
         return None
     try:
-        return _kb_searcher(query, top_k)
+        return _kb_searcher(query, top_k, min_score, category)
+    except TypeError:
+        try:
+            return _kb_searcher(query, top_k)
+        except Exception:
+            return None
     except Exception:
         return None
 
