@@ -9,6 +9,7 @@ import "@fontsource/inter/700.css";
 import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 import { AuthProvider } from "./contexts/AuthContext";
+import { FeedbackProvider } from "./components/ui/feedback";
 import { AppRouter } from "./app/router";
 import "./index.css";
 
@@ -16,7 +17,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <AppRouter />
+        <FeedbackProvider>
+          <AppRouter />
+        </FeedbackProvider>
       </AuthProvider>
     </BrowserRouter>
   </React.StrictMode>,

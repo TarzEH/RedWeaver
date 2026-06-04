@@ -12,6 +12,7 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { IconButton } from "../../components/ui/IconButton";
 import { Spinner } from "../../components/ui/Spinner";
 import { PageHeader } from "../../components/layout/PageHeader";
+import { useConfirm } from "../../components/ui/feedback";
 import { api } from "../../services/api";
 import type { WorkspaceResponse, SessionResponse, TargetResponse, HuntResponse } from "../../services/api";
 
@@ -198,8 +199,10 @@ function SessionDetail({
 
   useEffect(() => { fetchAll(); }, [session.id]);
 
+  const confirm = useConfirm();
+
   const deleteTarget = async (id: string) => {
-    if (!confirm("Delete this target?")) return;
+    if (!(await confirm({ title: "Delete target?", message: "Remove this target from the session.", danger: true, confirmLabel: "Delete" }))) return;
     try { await api.targets.delete(id); fetchTargets(); onRefresh(); } catch { /* ignore */ }
   };
 
@@ -227,7 +230,7 @@ function SessionDetail({
   };
 
   const deleteHunt = async (id: string) => {
-    if (!confirm("Delete this hunt?")) return;
+    if (!(await confirm({ title: "Delete hunt?", message: "This permanently deletes the hunt and its results.", danger: true, confirmLabel: "Delete" }))) return;
     try { await api.hunts.delete(id); fetchHunts(); onRefresh(); } catch { /* ignore */ }
   };
 
@@ -430,6 +433,7 @@ export function SessionsPage() {
 
   const [showCreateWorkspace, setShowCreateWorkspace] = useState(false);
   const [showCreateSession, setShowCreateSession] = useState(false);
+  const confirm = useConfirm();
 
   const fetchWorkspaces = () => {
     api.workspaces.list().then(setWorkspaces).catch(() => setWorkspaces([])).finally(() => setLoading(false));
@@ -456,7 +460,7 @@ export function SessionsPage() {
 
   const deleteWorkspace = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm("Delete this workspace and all its sessions?")) return;
+    if (!(await confirm({ title: "Delete workspace?", message: "This deletes the workspace and all of its sessions.", danger: true, confirmLabel: "Delete" }))) return;
     try {
       await api.workspaces.delete(id);
       if (activeWorkspace?.id === id) { setActiveWorkspace(null); setSessions([]); }
@@ -466,7 +470,7 @@ export function SessionsPage() {
 
   const deleteSession = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm("Delete this session?")) return;
+    if (!(await confirm({ title: "Delete session?", message: "This deletes the session and its hunts.", danger: true, confirmLabel: "Delete" }))) return;
     try {
       await api.sessions.delete(id);
       if (activeSession?.id === id) setActiveSession(null);

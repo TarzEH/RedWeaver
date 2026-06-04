@@ -11,6 +11,7 @@ import { IconButton } from "../../components/ui/IconButton";
 import { groupMessages } from "../../utils/messageGrouping";
 import { filterDuplicateReportFromMessages } from "../../utils/filterReportChat";
 import { api } from "../../services/api";
+import { useConfirm } from "../../components/ui/feedback";
 import type { RunDetail, RunMessage, SSHConfig } from "../../types/api";
 import { HuntReportBlock } from "./HuntReportBlock";
 
@@ -127,9 +128,11 @@ export function ChatPanel({ selectedRunId, onSelectRun, onRunDeleted }: ChatPane
       .finally(() => setLoading(false));
   };
 
-  const deleteCurrentHunt = () => {
+  const confirm = useConfirm();
+
+  const deleteCurrentHunt = async () => {
     if (!selectedRun?.run_id || deleting) return;
-    if (!window.confirm("Delete this hunt? This cannot be undone.")) return;
+    if (!(await confirm({ title: "Delete hunt?", message: "This permanently deletes the hunt and cannot be undone.", danger: true, confirmLabel: "Delete" }))) return;
     setDeleting(true);
     api.runs
       .delete(selectedRun.run_id)
