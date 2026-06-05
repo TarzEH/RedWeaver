@@ -12,6 +12,62 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return apiFetch<T>(path, options);
 }
 
+/* ── v0.6 insight + KB types ── */
+
+export interface RunCompare {
+  run_id: string;
+  baseline_id: string;
+  new: Finding[];
+  fixed: Finding[];
+  recurring: Finding[];
+  summary: { new: number; fixed: number; recurring: number };
+}
+
+export interface AttackChain {
+  id: string;
+  name: string;
+  description: string;
+  severity: string;
+  steps: string[];
+  finding_ids: string[];
+  created_at: string;
+}
+
+export interface AssetHost {
+  host: string;
+  findings: number;
+  max_severity: string;
+  ports: number[];
+  technologies: string[];
+}
+
+export interface AssetInventory {
+  session_id: string;
+  asset_count: number;
+  assets: AssetHost[];
+}
+
+export interface KbResult {
+  content: string;
+  file: string;
+  category: string;
+  relevance_score: number;
+}
+
+export interface KbFile {
+  file: string;
+  category: string;
+  chunks: number;
+  title: string;
+}
+
+export interface KbDocument {
+  file: string;
+  category: string;
+  title: string;
+  content: string;
+}
+
 /* ── Types matching backend DTOs ── */
 
 export interface WorkspaceResponse {
@@ -139,6 +195,21 @@ export const api = {
       request<{ status: string }>(`/api/runs/${id}/offsec`, { method: "POST" }),
     offsecGet: (id: string) =>
       request<{ status: string; markdown: string }>(`/api/runs/${id}/offsec`),
+    // v0.6: previously-orphaned insight endpoints
+    compare: (id: string, baseline: string) =>
+      request<RunCompare>(`/api/runs/${id}/compare?baseline=${baseline}`),
+    attackChains: (id: string) =>
+      request<AttackChain[]>(`/api/runs/${id}/attack-chains`),
+    ask: (id: string, question: string) =>
+      request<{ answer: string; question: string }>(`/api/runs/${id}/ask`, {
+        method: "POST",
+        body: JSON.stringify({ question }),
+      }),
+  },
+
+  insights: {
+    assets: (sessionId: string) =>
+      request<AssetInventory>(`/api/sessions/${sessionId}/assets`),
   },
 
   chat: {
@@ -243,9 +314,24 @@ export const api = {
         "/api/knowledge/health",
       ),
     query: (body: { query: string; top_k?: number; category?: string }) =>
-      request<{ results: { content: string; file: string; category: string; relevance_score: number }[] }>(
+      request<{ results: KbResult[] }>(
         "/api/knowledge/query",
         { method: "POST", body: JSON.stringify(body) },
+      ),
+    categories: () =>
+      request<{ categories: { category: string; chunks: number; files: number }[] }>(
+        "/api/knowledge/categories",
+      ),
+    files: (category?: string) =>
+      request<{ files: KbFile[] }>(
+        `/api/knowledge/files${category ? `?category=${encodeURIComponent(category)}` : ""}`,
+      ),
+    document: (file: string) =>
+      request<KbDocument>(`/api/knowledge/document?file=${encodeURIComponent(file)}`),
+    ask: (question: string) =>
+      request<{ answer: string; sources: string[]; question: string }>(
+        "/api/knowledge/ask",
+        { method: "POST", body: JSON.stringify({ question }) },
       ),
   },
 
