@@ -232,14 +232,21 @@ def tool_recorder(payload: dict):
     if not run_id:
         return None
     try:
-        seq = (
-            ToolExecution.objects.filter(run_id=run_id)
-            .aggregate(m=Max("sequence"))
-            .get("m")
-            or 0
-        ) + 1
-        te = ToolExecution.objects.create(
-            run_id=run_id,
+        from django.db import transaction
+
+        from apps.hunts.models import Run
+        # Allocate the per-run sequence under a row lock so concurrent (async)
+        # tool calls can't collide on the same ToolExecution.sequence.
+        with transaction.atomic():
+            Run.objects.select_for_update().filter(id=run_id).first()
+            seq = (
+                ToolExecution.objects.filter(run_id=run_id)
+                .aggregate(m=Max("sequence"))
+                .get("m")
+                or 0
+            ) + 1
+            te = ToolExecution.objects.create(
+                run_id=run_id,
             agent_name=payload.get("agent") or "",
             tool_name=payload.get("tool_name") or "tool",
             sequence=seq,
