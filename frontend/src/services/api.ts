@@ -39,6 +39,34 @@ export interface AssetHost {
   max_severity: string;
   ports: number[];
   technologies: string[];
+  cves: string[];
+  exploit_available: boolean;
+  screenshot: string;
+}
+
+export interface PosturePoint {
+  run_id: string;
+  date: string;
+  target: string;
+  exposure: number;
+  findings: number;
+  by_severity: Record<string, number>;
+}
+export interface PostureSeries {
+  session_id: string;
+  points: PosturePoint[];
+}
+
+export interface GraphNode {
+  id: string;
+  label: string;
+  type: string;
+  severity: string;
+}
+export interface AttackGraph {
+  run_id: string;
+  nodes: GraphNode[];
+  edges: { source: string; target: string }[];
 }
 
 export interface AssetInventory {
@@ -200,6 +228,8 @@ export const api = {
       request<RunCompare>(`/api/runs/${id}/compare?baseline=${baseline}`),
     attackChains: (id: string) =>
       request<AttackChain[]>(`/api/runs/${id}/attack-chains`),
+    attackGraph: (id: string) =>
+      request<AttackGraph>(`/api/runs/${id}/attack-graph`),
     ask: (id: string, question: string) =>
       request<{ answer: string; question: string }>(`/api/runs/${id}/ask`, {
         method: "POST",
@@ -210,6 +240,8 @@ export const api = {
   insights: {
     assets: (sessionId: string) =>
       request<AssetInventory>(`/api/sessions/${sessionId}/assets`),
+    posture: (sessionId: string) =>
+      request<PostureSeries>(`/api/sessions/${sessionId}/posture`),
   },
 
   chat: {

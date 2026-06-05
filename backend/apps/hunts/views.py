@@ -205,16 +205,28 @@ def session_assets(request, session_id):
 
     sess = scoped_get_or_404(Session, request.user, session_scope_q, id=session_id)
     rank = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}
+
+    def host_of(url, fallback):
+        return (
+            (urlparse(url).hostname if "://" in (url or "") else "")
+            or (url or "").split("/")[0].split(":")[0]
+            or fallback or "unknown"
+        )
+
+    # one screenshot per host (latest), for the asset-grid thumbnail
+    from apps.observability.models import Screenshot
+    shots: dict = {}
+    for s in Screenshot.objects.filter(run__session=sess).order_by("-taken_at"):
+        h = host_of(s.url, "")
+        if h and h not in shots:
+            shots[h] = s.image.url if s.image else ""
+
     assets: dict = {}
     for f in Finding.objects.filter(session=sess).select_related("run"):
-        host = (
-            (urlparse(f.affected_url).hostname if "://" in (f.affected_url or "") else "")
-            or (f.affected_url or "").split("/")[0].split(":")[0]
-            or (f.run.target if f.run_id else "")
-            or "unknown"
-        )
+        host = host_of(f.affected_url, f.run.target if f.run_id else "")
         a = assets.setdefault(host, {"host": host, "findings": 0, "max_severity": "info",
-                                     "ports": set(), "technologies": set()})
+                                     "ports": set(), "technologies": set(), "cves": set(),
+                                     "exploit_available": False})
         a["findings"] += 1
         if rank.get(f.severity, 0) > rank.get(a["max_severity"], 0):
             a["max_severity"] = f.severity
@@ -224,12 +236,90 @@ def session_assets(request, session_id):
         tm = re.search(r"detected\s+(.+?)(?:\s+version|\s+stack|$)", (f.title or "").lower())
         if tm:
             a["technologies"].add(tm.group(1).strip()[:40])
+        for c in (f.cve_ids or []):
+            a["cves"].add(c)
+        if f.cisa_kev or (f.exploitability or "").lower() in ("proven", "likely"):
+            a["exploit_available"] = True
     out = [
-        {**a, "ports": sorted(a["ports"]), "technologies": sorted(a["technologies"])}
+        {**a, "ports": sorted(a["ports"]), "technologies": sorted(a["technologies"]),
+         "cves": sorted(a["cves"]), "screenshot": shots.get(a["host"], "")}
         for a in assets.values()
     ]
     out.sort(key=lambda x: (-rank.get(x["max_severity"], 0), -x["findings"]))
     return Response({"session_id": str(sess.id), "asset_count": len(out), "assets": out})
+
+
+def _exposure_score(findings) -> float:
+    w = {"critical": 10, "high": 7, "medium": 4, "low": 2, "info": 0.5}
+    raw = sum(w.get((f.severity or "info").lower(), 0) for f in findings)
+    return round(min(100.0, 100.0 * (1 - 2.718 ** (-raw / 25.0))), 1)  # saturating
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def session_posture(request, session_id):
+    """Posture-over-time: exposure score + severity counts per finished run."""
+    from collections import Counter
+
+    from apps.common.access import scoped_get_or_404, session_scope_q
+    sess = scoped_get_or_404(Session, request.user, session_scope_q, id=session_id)
+    points = []
+    for run in sess.runs.filter(status="completed").order_by("created_at"):
+        fs = list(run.findings.all())
+        points.append({
+            "run_id": str(run.id),
+            "date": (run.completed_at or run.created_at).isoformat(),
+            "target": run.target,
+            "exposure": _exposure_score(fs),
+            "findings": len(fs),
+            "by_severity": dict(Counter(f.severity for f in fs)),
+        })
+    return Response({"session_id": str(sess.id), "points": points})
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def run_attack_graph(request, run_id):
+    """Unified attack graph: target -> host -> service/port -> CVE -> exploit,
+    built from the run's findings (answers 'what runs tech with an exploit')."""
+    import re as _re
+    from urllib.parse import urlparse as _up
+
+    run = scoped_get_or_404(Run, request.user, run_scope_q, id=run_id)
+    nodes: dict = {}
+    edges: list = []
+
+    def node(nid, label, ntype, sev="info"):
+        nodes.setdefault(nid, {"id": nid, "label": label[:48], "type": ntype, "severity": sev})
+
+    def edge(a, b):
+        if a != b and {"source": a, "target": b} not in edges:
+            edges.append({"source": a, "target": b})
+
+    target = run.target or "target"
+    node(f"t:{target}", target, "target")
+    for f in run.findings.all():
+        host = (_up(f.affected_url).hostname if "://" in (f.affected_url or "") else "") \
+            or (f.affected_url or "").split("/")[0].split(":")[0] or target
+        hid = f"h:{host}"
+        node(hid, host, "host")
+        edge(f"t:{target}", hid)
+        pm = _re.search(r"port\s*(\d{1,5})", (f.title or "").lower())
+        anchor = hid
+        if pm:
+            sid = f"s:{host}:{pm.group(1)}"
+            node(sid, f"port {pm.group(1)}", "service")
+            edge(hid, sid)
+            anchor = sid
+        for c in (f.cve_ids or []):
+            cid = f"c:{c}"
+            node(cid, c, "cve", f.severity)
+            edge(anchor, cid)
+            if f.cisa_kev or (f.exploitability or "").lower() in ("proven", "likely"):
+                eid = f"e:{c}"
+                node(eid, "exploit", "exploit", f.severity)
+                edge(cid, eid)
+    return Response({"run_id": str(run.id), "nodes": list(nodes.values()), "edges": edges})
 
 
 @api_view(["POST"])

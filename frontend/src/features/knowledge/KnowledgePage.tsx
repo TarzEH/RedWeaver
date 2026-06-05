@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
-import { BookOpen, Library, AlertCircle } from "lucide-react";
+import { BookOpen, Library, AlertCircle, ChevronDown, Grid3x3 } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { Spinner } from "../../components/ui/Spinner";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { MarkdownRenderer } from "../../components/domain/MarkdownRenderer";
+import { KbAttackHeatmap } from "../../components/domain/KbAttackHeatmap";
 import { api, type KbFile, type KbDocument } from "../../services/api";
 import { CategoryTree, type CategoryNode } from "./CategoryTree";
 import { SearchPanel } from "./SearchPanel";
 import { categoryLabel } from "./kbUtils";
+import { cn } from "../../lib/cn";
 
 type HealthState = { status: string; documents_indexed: number; files_indexed: number };
 
@@ -20,6 +22,7 @@ export function KnowledgePage() {
   const [doc, setDoc] = useState<KbDocument | null>(null);
   const [docLoading, setDocLoading] = useState(false);
   const [docError, setDocError] = useState(false);
+  const [heatmapOpen, setHeatmapOpen] = useState(false);
 
   useEffect(() => {
     api.knowledge.health().then(setHealth).catch(() => {});
@@ -81,8 +84,35 @@ export function KnowledgePage() {
             </p>
           </div>
         </div>
-        {unavailable && <Badge variant="danger">Service unavailable</Badge>}
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setHeatmapOpen((v) => !v)}
+            aria-expanded={heatmapOpen}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+              heatmapOpen
+                ? "border-rw-accent/40 bg-rw-accent/15 text-rw-accent"
+                : "border-rw-border bg-rw-surface text-rw-muted hover:text-rw-text",
+            )}
+          >
+            <Grid3x3 size={14} />
+            ATT&CK Coverage
+            <ChevronDown
+              size={14}
+              className={cn("transition-transform duration-150", heatmapOpen && "rotate-180")}
+            />
+          </button>
+          {unavailable && <Badge variant="danger">Service unavailable</Badge>}
+        </div>
       </header>
+
+      {/* Collapsible ATT&CK coverage heatmap */}
+      {heatmapOpen && (
+        <div className="shrink-0 border-b border-rw-border px-6 py-4 animate-fade-in">
+          <KbAttackHeatmap />
+        </div>
+      )}
 
       {/* 3-pane body */}
       <div className="flex flex-1 min-h-0 overflow-hidden">

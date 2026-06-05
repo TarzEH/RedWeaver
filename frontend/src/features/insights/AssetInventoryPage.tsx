@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Server, Network, Cpu, ArrowUpDown, ShieldOff } from "lucide-react";
+import { Server, Network, Cpu, ArrowUpDown, ShieldOff, Zap } from "lucide-react";
 import { api } from "../../services/api";
 import type { AssetInventory, AssetHost } from "../../services/api";
 import type { Finding, Severity } from "../../types/api";
 import { SEVERITY_ORDER, severityHex, severityStyle } from "../../config/theme";
-import { Spinner } from "../../components/ui/Spinner";
 import { EmptyState } from "../../components/ui/EmptyState";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { cn } from "../../lib/cn";
 import { ExposureCard } from "./ExposureCard";
+import { PostureTrend } from "../../components/domain/PostureTrend";
 
 type SortKey = "severity" | "findings";
 
@@ -188,8 +189,24 @@ export function AssetInventoryPage() {
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner size="lg" label="Loading asset inventory…" />
+      <div className="mx-auto max-w-6xl p-6">
+        <div className="mb-5 flex items-end justify-between gap-4">
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-56" />
+            <Skeleton className="h-4 w-40" />
+          </div>
+          <div className="flex gap-1.5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-7 w-16 rounded-md" />
+            ))}
+          </div>
+        </div>
+        <Skeleton className="mb-5 h-28 w-full rounded-xl" />
+        <div className="space-y-2 rounded-xl border border-rw-border bg-rw-elevated p-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-12 w-full" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -262,6 +279,9 @@ export function AssetInventoryPage() {
             subtitle={`Across ${assets.length} host${assets.length === 1 ? "" : "s"} in this session`}
           />
 
+          {/* Posture over time */}
+          {sessionId && <div className="mb-5"><PostureTrend sessionId={sessionId} /></div>}
+
           {/* Host table */}
           <div className="overflow-hidden rounded-xl border border-rw-border bg-rw-elevated">
             <table className="w-full text-sm">
@@ -283,6 +303,11 @@ export function AssetInventoryPage() {
                       <Cpu size={11} /> Technologies
                     </span>
                   </th>
+                  <th className="px-4 py-2.5 text-rw-dim">
+                    <span className="inline-flex items-center gap-1">
+                      <ShieldOff size={11} /> CVEs
+                    </span>
+                  </th>
                   <SortHeader
                     label="Findings"
                     active={sortKey === "findings"}
@@ -297,7 +322,29 @@ export function AssetInventoryPage() {
                     key={host.host}
                     className="border-t border-rw-border/60 transition-colors hover:bg-rw-surface/40"
                   >
-                    <td className="px-4 py-3 font-mono text-rw-text">{host.host}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        {host.screenshot && (
+                          <img
+                            src={host.screenshot}
+                            alt={`Screenshot of ${host.host}`}
+                            loading="lazy"
+                            className="h-10 w-16 shrink-0 rounded border border-rw-border object-cover"
+                            onError={(e) => {
+                              e.currentTarget.style.display = "none";
+                            }}
+                          />
+                        )}
+                        <div className="flex min-w-0 flex-col gap-1">
+                          <span className="truncate font-mono text-rw-text">{host.host}</span>
+                          {host.exploit_available && (
+                            <span className="inline-flex w-fit items-center gap-1 rounded border border-red-500/40 bg-red-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-red-400">
+                              <Zap size={9} /> Exploit
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </td>
                     <td className="px-4 py-3">
                       <MaxSeverityBadge severity={host.max_severity} />
                     </td>
@@ -306,6 +353,9 @@ export function AssetInventoryPage() {
                     </td>
                     <td className="max-w-sm px-4 py-3">
                       <Chips items={host.technologies} tone="muted" empty="—" />
+                    </td>
+                    <td className="max-w-xs px-4 py-3">
+                      <Chips items={host.cves} tone="muted" empty="—" />
                     </td>
                     <td className="px-4 py-3 text-right">
                       <span className="font-mono font-semibold text-rw-text">

@@ -11,8 +11,10 @@ from .views import (
     SessionViewSet,
     TargetViewSet,
     run_ask,
+    run_attack_graph,
     run_offsec,
     session_assets,
+    session_posture,
 )
 
 router = SimpleRouter(trailing_slash=False)
@@ -28,5 +30,7 @@ urlpatterns = [
     path("runs/<uuid:run_id>/offsec", run_offsec, name="run-offsec"),
     path("runs/<uuid:run_id>/ask", run_ask, name="run-ask"),
     path("sessions/<uuid:session_id>/assets", session_assets, name="session-assets"),
+    path("sessions/<uuid:session_id>/posture", session_posture, name="session-posture"),
+    path("runs/<uuid:run_id>/attack-graph", run_attack_graph, name="run-attack-graph"),
     *router.urls,
 ]
