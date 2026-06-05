@@ -3,7 +3,7 @@ import uuid
 
 from django.db import models
 from django.utils import timezone
-from pgvector.django import VectorField
+from pgvector.django import HnswIndex, VectorField
 
 # OpenAI text-embedding-3-small dimensionality.
 EMBED_DIM = 1536
@@ -21,7 +21,16 @@ class KbChunk(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
-        indexes = [models.Index(fields=["file"])]
+        indexes = [
+            models.Index(fields=["file"]),
+            HnswIndex(
+                name="kbchunk_emb_hnsw",
+                fields=["embedding"],
+                m=16,
+                ef_construction=64,
+                opclasses=["vector_cosine_ops"],
+            ),
+        ]
 
     def __str__(self) -> str:
         return f"{self.file}#{self.chunk_index}"

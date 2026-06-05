@@ -54,8 +54,44 @@ def record_event(run, event_type: str, data: dict, seq: int) -> None:
             _huntflow_completed(run, data)
         if event_type == "screenshot":
             _screenshot(run, data)
+        if event_type == "attack_chain":
+            _attack_chain(run, data)
+        if event_type == "false_positives":
+            _false_positives(run, data)
     except Exception:
         logger.exception("record_event failed: %s", event_type)
+
+
+def _attack_chain(run, data) -> None:
+    from apps.findings.models import AttackChain, Finding
+
+    name = (data.get("name") or "").strip()
+    if not name:
+        return
+    ch = AttackChain.objects.create(
+        run=run,
+        name=name[:256],
+        description=(data.get("description") or "")[:4000],
+        severity=(data.get("severity") or "high").lower(),
+        steps=data.get("steps") or [],
+    )
+    # Link findings whose title appears in a chain step (best-effort).
+    titles = [s.lower() for s in (data.get("steps") or []) if isinstance(s, str)]
+    if titles:
+        for f in Finding.objects.filter(run=run):
+            if any(f.title.lower() in step or step in f.title.lower() for step in titles):
+                ch.findings.add(f)
+
+
+def _false_positives(run, data) -> None:
+    from apps.findings.models import Finding, FindingStatus
+
+    for title in data.get("titles") or []:
+        if not isinstance(title, str) or not title.strip():
+            continue
+        Finding.objects.filter(run=run, title__iexact=title.strip()).update(
+            status=FindingStatus.FALSE_POSITIVE
+        )
 
 
 def _agent_step(run, event_type, data, seq) -> None:

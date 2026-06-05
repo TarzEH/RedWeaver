@@ -10,6 +10,7 @@ import logging
 
 from celery import shared_task
 from celery.exceptions import SoftTimeLimitExceeded
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.accounts.keys import keys_provider_for_user
@@ -23,6 +24,33 @@ from .observability_sink import make_event_callback
 from .offsec_tasks import generate_offsec_playbook  # noqa: E402,F401
 
 logger = logging.getLogger(__name__)
+
+
+@shared_task
+def run_due_schedules() -> None:
+    """Celery-beat tick: enqueue any recurring scans whose interval has elapsed."""
+    from datetime import timedelta
+
+    now = timezone.now()
+    from .models import Schedule
+
+    schedules = Schedule.objects.filter(enabled=True).filter(
+        Q(next_run_at__isnull=True) | Q(next_run_at__lte=now)
+    )
+    for sch in schedules:
+        run = Run.objects.create(
+            target=sch.target,
+            scope=sch.scope or sch.target,
+            objective=sch.objective or "comprehensive",
+            created_by=sch.created_by,
+            session=sch.session,
+        )
+        from .views import _enqueue_run
+        _enqueue_run(run)
+        sch.last_run_at = now
+        sch.next_run_at = now + timedelta(minutes=sch.interval_minutes or 1440)
+        sch.save(update_fields=["last_run_at", "next_run_at", "updated_at"])
+    logger.info("run_due_schedules: enqueued %d scheduled scans", len(schedules))
 
 
 @shared_task(bind=True)

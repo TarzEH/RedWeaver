@@ -232,6 +232,33 @@ class NotificationChannel(TimeStampedUUIDModel):
     def __str__(self):
         return f"{self.name} ({self.kind})"
 
+
+class Schedule(TimeStampedUUIDModel):
+    """A recurring scan: re-runs a target every interval (continuous monitoring)."""
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="schedules",
+    )
+    session = models.ForeignKey(
+        "hunts.Session", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="schedules",
+    )
+    name = models.CharField(max_length=128)
+    target = models.CharField(max_length=512)
+    scope = models.CharField(max_length=512, blank=True, default="")
+    objective = models.CharField(max_length=128, default="comprehensive")
+    interval_minutes = models.IntegerField(default=1440)  # daily
+    enabled = models.BooleanField(default=True)
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    next_run_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.name} -> {self.target} (every {self.interval_minutes}m)"
+
     def __str__(self) -> str:
         return f"Run<{self.id}> {self.target} [{self.status}]"
 

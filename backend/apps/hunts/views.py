@@ -21,7 +21,7 @@ from apps.common.access import (
 )
 from apps.common.permissions import RoleWritePermission
 
-from .models import NotificationChannel, Run, Session, Target
+from .models import NotificationChannel, Run, Schedule, Session, Target
 from .serializers import (
     HuntCreateSerializer,
     HuntDetailSerializer,
@@ -29,6 +29,7 @@ from .serializers import (
     NotificationChannelSerializer,
     RunDetailSerializer,
     RunSummarySerializer,
+    ScheduleSerializer,
     SessionSerializer,
     SessionWriteSerializer,
     TargetSerializer,
@@ -173,6 +174,62 @@ class NotificationChannelViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+
+class ScheduleViewSet(viewsets.ModelViewSet):
+    """Recurring scans (continuous monitoring), scoped to the owner."""
+    serializer_class = ScheduleSerializer
+    permission_classes = [IsAuthenticated, RoleWritePermission]
+
+    def get_queryset(self):
+        u = self.request.user
+        qs = Schedule.objects.all()
+        if getattr(u, "is_superuser", False):
+            return qs
+        return qs.filter(created_by=u)
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def session_assets(request, session_id):
+    """Asset inventory: aggregate findings across a session's runs into hosts
+    with open ports, detected tech, finding counts and max severity."""
+    import re
+    from urllib.parse import urlparse
+
+    from apps.common.access import scoped_get_or_404, session_scope_q
+    from apps.findings.models import Finding
+
+    sess = scoped_get_or_404(Session, request.user, session_scope_q, id=session_id)
+    rank = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}
+    assets: dict = {}
+    for f in Finding.objects.filter(session=sess).select_related("run"):
+        host = (
+            (urlparse(f.affected_url).hostname if "://" in (f.affected_url or "") else "")
+            or (f.affected_url or "").split("/")[0].split(":")[0]
+            or (f.run.target if f.run_id else "")
+            or "unknown"
+        )
+        a = assets.setdefault(host, {"host": host, "findings": 0, "max_severity": "info",
+                                     "ports": set(), "technologies": set()})
+        a["findings"] += 1
+        if rank.get(f.severity, 0) > rank.get(a["max_severity"], 0):
+            a["max_severity"] = f.severity
+        m = re.search(r"port\s*(\d{1,5})", (f.title or "").lower())
+        if m:
+            a["ports"].add(int(m.group(1)))
+        tm = re.search(r"detected\s+(.+?)(?:\s+version|\s+stack|$)", (f.title or "").lower())
+        if tm:
+            a["technologies"].add(tm.group(1).strip()[:40])
+    out = [
+        {**a, "ports": sorted(a["ports"]), "technologies": sorted(a["technologies"])}
+        for a in assets.values()
+    ]
+    out.sort(key=lambda x: (-rank.get(x["max_severity"], 0), -x["findings"]))
+    return Response({"session_id": str(sess.id), "asset_count": len(out), "assets": out})
 
 
 @api_view(["POST"])

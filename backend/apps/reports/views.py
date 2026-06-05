@@ -116,6 +116,57 @@ def build_report(run: Run) -> dict:
                 key=lambda f: _SEV_ORDER.index(f.severity) if f.severity in _SEV_ORDER else 99,
             )[:10]
         ],
+        "compliance": _compliance(findings),
+        "branding": _branding(run),
+        "cost": {
+            "prompt_tokens": run.prompt_tokens,
+            "completion_tokens": run.completion_tokens,
+            "total_tokens": run.total_tokens,
+            "usd": float(run.cost_usd or 0),
+        },
+    }
+
+
+# OWASP Top 10 (2021) keyword map for compliance reporting.
+_OWASP = [
+    (("sql injection", "command injection", "xss", "ssrf", "lfi", "rfi", "traversal", "injection"),
+     "A03:2021 Injection"),
+    (("auth", "default cred", "brute", "password", "session"), "A07:2021 Identification & Auth Failures"),
+    (("misconfig", "default", "directory listing", "exposed", "open port", "header"),
+     "A05:2021 Security Misconfiguration"),
+    (("outdated", "version", "cve-", "vulnerable component", "end of life"),
+     "A06:2021 Vulnerable & Outdated Components"),
+    (("access", "idor", "authorization", "privilege"), "A01:2021 Broken Access Control"),
+    (("crypto", "tls", "ssl", "cleartext", "weak cipher"), "A02:2021 Cryptographic Failures"),
+]
+
+
+def _compliance(findings) -> dict:
+    from apps.findings.attack_map import techniques_for
+
+    owasp: dict = {}
+    mitre: dict = {}
+    for f in findings:
+        text = f"{f.title} {f.description}".lower()
+        for keys, cat in _OWASP:
+            if any(k in text for k in keys):
+                owasp[cat] = owasp.get(cat, 0) + 1
+                break
+        for t in techniques_for(f):
+            mitre[f"{t['id']} {t['name']}"] = mitre.get(f"{t['id']} {t['name']}", 0) + 1
+    return {
+        "owasp_top_10": [{"category": k, "count": v} for k, v in sorted(owasp.items())],
+        "mitre_attack": [{"technique": k, "count": v}
+                         for k, v in sorted(mitre.items(), key=lambda x: -x[1])],
+    }
+
+
+def _branding(run) -> dict:
+    ws = run.workspace if run.workspace_id else None
+    return {
+        "name": (ws.brand_name if ws and ws.brand_name else "RedWeaver"),
+        "color": (ws.brand_color if ws and ws.brand_color else "#3b82f6"),
+        "logo_url": (ws.brand_logo_url if ws else "") or "",
     }
 
 

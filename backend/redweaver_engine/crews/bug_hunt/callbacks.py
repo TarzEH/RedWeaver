@@ -107,6 +107,23 @@ def _extract_findings_from_output(output: Any, agent_name: str) -> list[dict[str
     return findings
 
 
+def _extract_list_field(output: Any, field: str) -> list:
+    """Pull a list field (e.g. attack_chains/false_positives) from a TaskOutput."""
+    raw = None
+    if hasattr(output, "pydantic") and output.pydantic and hasattr(output.pydantic, field):
+        raw = getattr(output.pydantic, field)
+    elif hasattr(output, "json_dict") and isinstance(output.json_dict, dict):
+        raw = output.json_dict.get(field)
+    elif hasattr(output, "raw") and isinstance(output.raw, str):
+        try:
+            parsed = json.loads(output.raw)
+            if isinstance(parsed, dict):
+                raw = parsed.get(field)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return raw or []
+
+
 def _extract_report_markdown(output: Any) -> str:
     """Extract report_markdown from a CrewAI TaskOutput or similar."""
     if output is None:
@@ -262,6 +279,22 @@ class CrewAIEventBridge:
                     self._tree.complete_node(f_node.id)
                     self._emit_node_added(f_node)
                     self._callback("finding", finding)
+
+            # Persist correlated attack chains + auto-mark false positives (the
+            # exploit_analyst produces these; previously they were discarded).
+            for ch in _extract_list_field(task_output, "attack_chains"):
+                if hasattr(ch, "model_dump"):
+                    ch = ch.model_dump()
+                if isinstance(ch, dict) and ch.get("name"):
+                    self._callback("attack_chain", {
+                        "name": ch.get("name"),
+                        "steps": ch.get("steps") or [],
+                        "severity": ch.get("severity") or "high",
+                        "description": ch.get("description") or "",
+                    })
+            fps = [f for f in _extract_list_field(task_output, "false_positives") if isinstance(f, str)]
+            if fps:
+                self._callback("false_positives", {"titles": fps})
 
             # Report markdown: take the longest extracted block (report_writer task;
             # parallel/async ordering can make crew-level pydantic point at a non-report task).

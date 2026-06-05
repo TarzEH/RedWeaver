@@ -3,7 +3,7 @@ from rest_framework import serializers
 
 from apps.findings.serializers import FindingSerializer
 
-from .models import NotificationChannel, Run, Session, Target
+from .models import NotificationChannel, Run, Schedule, Session, Target
 
 
 def _sid(value) -> str | None:
@@ -159,6 +159,14 @@ class NotificationChannelSerializer(serializers.ModelSerializer):
         model = NotificationChannel
         fields = ("id", "name", "kind", "url", "events", "enabled", "workspace", "created_at")
         read_only_fields = ("id", "created_at")
+
+
+class ScheduleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Schedule
+        fields = ("id", "name", "target", "scope", "objective", "session",
+                  "interval_minutes", "enabled", "last_run_at", "next_run_at", "created_at")
+        read_only_fields = ("id", "last_run_at", "next_run_at", "created_at")
 
 
 class RunSummarySerializer(serializers.ModelSerializer):
