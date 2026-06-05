@@ -14,6 +14,7 @@ import { SeverityBar } from "../../components/domain/report/SeverityBar";
 import { CvssEpssScatter } from "../../components/domain/report/CvssEpssScatter";
 import { MitreHeatmap } from "../../components/domain/report/MitreHeatmap";
 import { AttackPathGraph } from "../../components/domain/report/AttackPathGraph";
+import { AttackGraphView } from "../../components/domain/AttackGraphView";
 import { buildReportMarkdown } from "./buildReportMarkdown";
 import { cn } from "../../lib/cn";
 
@@ -175,6 +176,14 @@ export function ReportView({ runId: runIdProp }: ReportViewProps) {
           <SectionTitle>Attack Paths</SectionTitle>
           <AttackPathGraph chains={chains} />
         </section>
+
+        {/* Unified attack graph (target -> host -> service -> CVE -> exploit) */}
+        {runId && (
+          <section>
+            <SectionTitle>Attack Surface Graph</SectionTitle>
+            <AttackGraphView runId={runId} />
+          </section>
+        )}
 
         {/* MITRE ATT&CK heatmap */}
         <section>

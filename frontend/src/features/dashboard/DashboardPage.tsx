@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Shield, Target, Activity, AlertTriangle, Plus, ExternalLink } from "lucide-react";
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  ResponsiveContainer,
+  Tooltip,
+  AreaChart,
+  Area,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { formatRelativeDate } from "../../utils/formatDate";
 import { severityHex, SEVERITY_ORDER } from "../../config/theme";
 import { Card } from "../../components/ui/Card";
@@ -9,32 +20,50 @@ import { Button } from "../../components/ui/Button";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { SeverityBadge } from "../../components/ui/SeverityBadge";
 import { EmptyState } from "../../components/ui/EmptyState";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { api } from "../../services/api";
 import type { RunSummary, Finding } from "../../types/api";
 
+/** Finding rows are tagged with the originating run's target for trend grouping. */
+type TaggedFinding = Finding & { _target?: string; _runId?: string; _created?: string };
+
 export function DashboardPage() {
   const navigate = useNavigate();
   const [runs, setRuns] = useState<RunSummary[]>([]);
-  const [allFindings, setAllFindings] = useState<Finding[]>([]);
+  const [allFindings, setAllFindings] = useState<TaggedFinding[]>([]);
+  const [runsLoading, setRunsLoading] = useState(true);
+  const [findingsLoading, setFindingsLoading] = useState(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchRuns = () => {
-    api.runs.list().then(setRuns).catch(() => {});
+    api.runs.list().then(setRuns).catch(() => {}).finally(() => setRunsLoading(false));
   };
 
   useEffect(() => { fetchRuns(); }, []);
 
   useEffect(() => {
     const finishedRuns = runs.filter((r) => r.status === "completed" || r.status === "failed").slice(0, 5);
-    if (finishedRuns.length === 0) { setAllFindings([]); return; }
+    if (finishedRuns.length === 0) { setAllFindings([]); setFindingsLoading(false); return; }
+    setFindingsLoading(true);
     Promise.all(
       finishedRuns.map((r) =>
         api.runs.findings(r.run_id)
-          .then((findings) => findings.map((f) => ({ ...f, _target: r.target })))
-          .catch(() => [] as Finding[]),
+          .then((findings) =>
+            findings.map(
+              (f): TaggedFinding => ({
+                ...f,
+                _target: r.target,
+                _runId: r.run_id,
+                _created: r.created_at,
+              }),
+            ),
+          )
+          .catch(() => [] as TaggedFinding[]),
       ),
-    ).then((results) => setAllFindings(results.flat()));
+    )
+      .then((results) => setAllFindings(results.flat()))
+      .finally(() => setFindingsLoading(false));
   }, [runs]);
 
   const hasActive = runs.some((r) => r.status === "running" || r.status === "queued");
@@ -65,6 +94,26 @@ export function DashboardPage() {
     [sevCounts],
   );
 
+  // Findings-by-severity across the recent finished runs, ordered chronologically
+  // so the trend reads left→right (oldest → newest run).
+  const trendData = useMemo(() => {
+    const byRun = new Map<string, { label: string; created: string; counts: Record<string, number> }>();
+    for (const f of allFindings) {
+      const runId = f._runId || "unknown";
+      let entry = byRun.get(runId);
+      if (!entry) {
+        const zero: Record<string, number> = {};
+        for (const s of SEVERITY_ORDER) zero[s] = 0;
+        entry = { label: f._target || runId.slice(0, 8), created: f._created || "", counts: zero };
+        byRun.set(runId, entry);
+      }
+      entry.counts[f.severity] = (entry.counts[f.severity] || 0) + 1;
+    }
+    return [...byRun.values()]
+      .sort((a, b) => (a.created || "").localeCompare(b.created || ""))
+      .map((e) => ({ name: e.label, ...e.counts }));
+  }, [allFindings]);
+
   const stats = [
     { label: "Total Hunts", value: runs.length, icon: Target, color: "text-rw-accent" },
     { label: "Running", value: running, icon: Activity, color: "text-blue-400" },
@@ -85,21 +134,50 @@ export function DashboardPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-4 gap-4 mb-8">
-        {stats.map((s) => (
-          <Card key={s.label}>
-            <div className="flex items-center gap-3">
-              <s.icon size={20} className={s.color} />
-              <div>
-                <div className="text-2xl font-bold text-rw-text">{s.value}</div>
-                <div className="text-xs text-rw-dim">{s.label}</div>
-              </div>
-            </div>
-          </Card>
-        ))}
+        {runsLoading
+          ? Array.from({ length: 4 }).map((_, i) => (
+              <Card key={i}>
+                <div className="flex items-center gap-3">
+                  <Skeleton className="h-5 w-5 rounded" />
+                  <div className="space-y-1.5">
+                    <Skeleton className="h-7 w-10" />
+                    <Skeleton className="h-3 w-20" />
+                  </div>
+                </div>
+              </Card>
+            ))
+          : stats.map((s) => (
+              <Card key={s.label}>
+                <div className="flex items-center gap-3">
+                  <s.icon size={20} className={s.color} />
+                  <div>
+                    <div className="text-2xl font-bold text-rw-text">{s.value}</div>
+                    <div className="text-xs text-rw-dim">{s.label}</div>
+                  </div>
+                </div>
+              </Card>
+            ))}
       </div>
 
+      {/* Vulnerability Overview — skeleton while findings load */}
+      {findingsLoading && !runsLoading && (
+        <div className="mb-8">
+          <h2 className="text-sm font-medium text-rw-muted uppercase tracking-wider mb-3">
+            Vulnerability Overview
+          </h2>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Card key={i}>
+                <Skeleton className="mb-3 h-4 w-32" />
+                <Skeleton className="h-40 w-full" />
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Vulnerability Overview */}
-      {allFindings.length > 0 && (
+      {!findingsLoading && allFindings.length > 0 && (
         <div className="mb-8">
           <h2 className="text-sm font-medium text-rw-muted uppercase tracking-wider mb-3">
             Vulnerability Overview
@@ -180,6 +258,50 @@ export function DashboardPage() {
               </div>
             </Card>
           </div>
+
+          {/* Findings over time — by-severity across the recent finished runs */}
+          <Card className="mt-4">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-sm font-medium text-rw-text">Findings Over Time</span>
+              <span className="text-xs text-rw-dim">
+                {trendData.length} run{trendData.length === 1 ? "" : "s"}
+              </span>
+            </div>
+            {trendData.length < 2 ? (
+              <p className="py-6 text-center text-xs text-rw-dim">
+                Findings trend appears once two or more finished runs are available.
+              </p>
+            ) : (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={trendData} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fill: "#8b9cb3", fontSize: 11 }} stroke="#334155" />
+                  <YAxis tick={{ fill: "#8b9cb3", fontSize: 11 }} stroke="#334155" width={36} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{
+                      background: "#111827",
+                      border: "1px solid #334155",
+                      borderRadius: 8,
+                      fontSize: 12,
+                      textTransform: "capitalize",
+                    }}
+                  />
+                  {SEVERITY_ORDER.map((sev) => (
+                    <Area
+                      key={sev}
+                      type="monotone"
+                      dataKey={sev}
+                      stackId="sev"
+                      stroke={severityHex(sev)}
+                      fill={severityHex(sev)}
+                      fillOpacity={0.55}
+                      strokeWidth={1}
+                    />
+                  ))}
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </Card>
         </div>
       )}
 
