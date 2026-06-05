@@ -53,6 +53,45 @@ def run_due_schedules() -> None:
     logger.info("run_due_schedules: enqueued %d scheduled scans", len(schedules))
 
 
+# Grace period (seconds) added to a run's own timeout before the watchdog reaps it.
+REAP_GRACE_SECONDS = 120
+
+
+@shared_task
+def reap_stuck_runs() -> None:
+    """Celery-beat watchdog: fail runs orphaned by a worker restart/crash.
+
+    A run's timeout is only enforced inside the live Celery task; if the worker
+    is restarted or killed mid-run, the run is stranded in 'running' forever.
+    This periodic sweep marks any running/queued run whose age exceeds its own
+    timeout_seconds + grace as failed so the UI and metrics stay truthful.
+    """
+    from datetime import timedelta  # noqa: F401  (kept for parity / future use)
+
+    now = timezone.now()
+    candidates = Run.objects.filter(
+        status__in=[RunStatus.RUNNING, RunStatus.QUEUED]
+    )
+    reaped = 0
+    for run in candidates:
+        anchor = run.started_at or run.created_at
+        if not anchor:
+            continue
+        limit = (run.timeout_seconds or 900) + REAP_GRACE_SECONDS
+        if (now - anchor).total_seconds() <= limit:
+            continue
+        run.status = RunStatus.FAILED
+        run.completed_at = run.completed_at or now
+        run.error_message = (
+            (run.error_message or "")
+            + f" [reaped: exceeded timeout ({run.timeout_seconds}s) — orphaned by watchdog]"
+        ).strip()
+        run.save(update_fields=["status", "completed_at", "error_message", "updated_at"])
+        reaped += 1
+    if reaped:
+        logger.warning("reap_stuck_runs: marked %d stuck run(s) as failed", reaped)
+
+
 @shared_task(bind=True)
 def execute_run(self, run_id: str) -> None:
     run = Run.objects.filter(id=run_id).select_related("created_by").first()

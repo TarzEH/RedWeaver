@@ -19,6 +19,12 @@ app.conf.beat_schedule = {
         "task": "apps.hunts.tasks.run_due_schedules",
         "schedule": 60.0,
     },
+    # Watchdog: fail runs orphaned by a worker restart/crash (stuck in 'running'
+    # past their timeout). Runs every 2 minutes.
+    "reap-stuck-runs": {
+        "task": "apps.hunts.tasks.reap_stuck_runs",
+        "schedule": 120.0,
+    },
 }
 
 
