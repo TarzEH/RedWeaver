@@ -170,6 +170,108 @@ def _branding(run) -> dict:
     }
 
 
+# Unified severity palette (matches the frontend theme severityHex).
+_SEV_HEX = {"critical": "#ef4444", "high": "#f97316", "medium": "#eab308",
+            "low": "#3b82f6", "info": "#64748b"}
+
+
+def _render_html(r: dict) -> str:
+    """Self-contained premium HTML report rendered from the rich build_report dict
+    (the old export path ignored most of this data). Dark theme + print CSS."""
+    import html as _h
+    import re
+
+    def esc(s):
+        return _h.escape(str(s or ""))
+
+    brand = r.get("branding") or {}
+    accent = brand.get("color") or "#3b82f6"
+    sev_counts = r.get("findings_by_severity") or {}
+    total = sum(sev_counts.values()) or 0
+
+    tiles = "".join(
+        f'<div class="tile"><div class="n" style="color:{_SEV_HEX[s]}">{sev_counts.get(s, 0)}</div>'
+        f'<div class="l">{s.upper()}</div></div>'
+        for s in ["critical", "high", "medium", "low", "info"]
+    )
+    bar = "".join(
+        f'<div style="flex:{max(sev_counts.get(s,0),0)};background:{_SEV_HEX[s]}" title="{s}: {sev_counts.get(s,0)}"></div>'
+        for s in ["critical", "high", "medium", "low", "info"] if sev_counts.get(s, 0)
+    )
+    owasp = "".join(
+        f'<span class="chip">{esc(c["category"])} <b>{c["count"]}</b></span>'
+        for c in (r.get("compliance", {}).get("owasp_top_10") or [])
+    )
+    mitre = "".join(
+        f'<span class="chip">{esc(m["technique"])} <b>{m["count"]}</b></span>'
+        for m in (r.get("compliance", {}).get("mitre_attack") or [])
+    )
+    rows = ""
+    for f in sorted(r.get("findings") or [], key=lambda x: _SEV_ORDER.index(x.get("severity"))
+                    if x.get("severity") in _SEV_ORDER else 99):
+        sev = (f.get("severity") or "info").lower()
+        rows += (
+            f'<tr><td><span class="sev" style="background:{_SEV_HEX.get(sev)}1f;color:{_SEV_HEX.get(sev)}">'
+            f'{sev.upper()}</span></td><td>{esc(f.get("title"))}</td>'
+            f'<td class="mono">{esc(f.get("cvss_score") or "—")}</td>'
+            f'<td class="mono">{esc(f.get("risk_score") or "—")} {esc((f.get("risk_decision") or "").upper())}</td>'
+            f'<td class="mono">{esc(f.get("affected_url"))}</td></tr>'
+        )
+    remed = "".join(
+        f'<li><b>{esc(p["title"])}</b> <span class="sev" style="background:{_SEV_HEX.get((p.get("severity") or "info").lower())}1f;'
+        f'color:{_SEV_HEX.get((p.get("severity") or "info").lower())}">{esc((p.get("severity") or "").upper())}</span>'
+        f'<div class="muted">{esc(p.get("remediation"))}</div></li>'
+        for p in (r.get("remediation_priorities") or [])
+    )
+    # light markdown -> html for the narrative
+    md = esc(r.get("report_markdown") or "")
+    md = re.sub(r"^### (.+)$", r"<h3>\1</h3>", md, flags=re.M)
+    md = re.sub(r"^## (.+)$", r"<h2>\1</h2>", md, flags=re.M)
+    md = re.sub(r"^# (.+)$", r"<h1>\1</h1>", md, flags=re.M)
+    md = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", md)
+    md = md.replace("\n", "<br>")
+    cost = r.get("cost") or {}
+
+    return f"""<!doctype html><html><head><meta charset="utf-8">
+<title>{esc(brand.get('name','RedWeaver'))} — {esc(r.get('target'))}</title>
+<style>
+ :root{{--accent:{accent}}}
+ *{{box-sizing:border-box}} body{{margin:0;font:14px/1.6 Inter,system-ui,sans-serif;background:#0a0f1e;color:#e6edf3}}
+ .wrap{{max-width:980px;margin:0 auto;padding:40px 28px}}
+ .hdr{{display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:16px}}
+ .hdr h1{{margin:0;font-size:22px;color:var(--accent)}} .muted{{color:#8b949e}}
+ .card{{background:#111827;border:1px solid #1e3a5f;border-radius:12px;padding:22px;margin:20px 0}}
+ .verdict{{font-size:48px;font-weight:800;letter-spacing:-1px}}
+ .tiles{{display:flex;gap:10px;margin-top:14px}} .tile{{flex:1;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:12px;text-align:center}}
+ .tile .n{{font-size:24px;font-weight:700}} .tile .l{{font-size:10px;color:#8b949e;letter-spacing:1px}}
+ .bar{{display:flex;height:10px;border-radius:6px;overflow:hidden;margin-top:14px;background:#1e293b}}
+ .chip{{display:inline-block;background:#1e293b;border:1px solid #334155;border-radius:6px;padding:3px 8px;margin:3px;font-size:12px}}
+ table{{width:100%;border-collapse:collapse;font-size:13px}} th,td{{text-align:left;padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.06)}}
+ th{{color:#8b949e;font-size:11px;text-transform:uppercase;letter-spacing:1px}}
+ .sev{{padding:2px 8px;border-radius:5px;font-size:11px;font-weight:600}} .mono{{font-family:ui-monospace,monospace;font-size:12px;color:#8b949e}}
+ h2{{font-size:14px;text-transform:uppercase;letter-spacing:1px;color:#8b949e;margin:26px 0 10px}}
+ .narrative h1,.narrative h2,.narrative h3{{color:#e6edf3;text-transform:none;letter-spacing:0}}
+ ol{{padding-left:18px}} li{{margin-bottom:12px}}
+ @media print{{body{{background:#fff;color:#111}} .card{{border-color:#ddd;background:#fff;page-break-inside:avoid}} .muted,th{{color:#555}}}}
+</style></head><body><div class="wrap">
+ <div class="hdr">{('<img src="'+esc(brand['logo_url'])+'" height="36">') if brand.get('logo_url') else ''}
+   <div><h1>{esc(brand.get('name','RedWeaver'))}</h1>
+   <div class="muted mono">{esc(r.get('target'))} · {esc(r.get('generated_at'))}</div></div></div>
+ <div class="card"><div class="muted">OVERALL RISK RATING</div>
+   <div class="verdict" style="color:{_SEV_HEX.get((r.get('risk_rating') or 'info').lower(), accent)}">{esc(r.get('risk_rating'))}</div>
+   <div class="muted">{total} findings · {esc(r.get('target'))}</div>
+   <div class="tiles">{tiles}</div><div class="bar">{bar}</div></div>
+ {('<div class="card"><h2 style="margin-top:0">Executive Summary</h2><div class="narrative">'+md+'</div></div>') if md else ''}
+ <div class="card"><h2 style="margin-top:0">Compliance — OWASP Top 10</h2>{owasp or '<span class="muted">—</span>'}
+   <h2>MITRE ATT&CK</h2>{mitre or '<span class="muted">—</span>'}</div>
+ <div class="card"><h2 style="margin-top:0">Findings ({total})</h2>
+   <table><tr><th>Severity</th><th>Title</th><th>CVSS</th><th>Risk</th><th>Affected</th></tr>{rows}</table></div>
+ {('<div class="card"><h2 style="margin-top:0">Remediation Priorities</h2><ol>'+remed+'</ol></div>') if remed else ''}
+ <div class="muted" style="text-align:center;margin-top:24px;font-size:12px">
+   Generated by {esc(brand.get('name','RedWeaver'))} · {cost.get('total_tokens',0)} tokens · ${cost.get('usd',0)}</div>
+</div></body></html>"""
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def run_report(request, run_id):
@@ -202,13 +304,7 @@ def run_report_export(request, run_id):
 
     if fmt == "html":
         try:
-            from redweaver_engine.reports import generate_report_data, render_html_report
-            data = generate_report_data(
-                run_id=str(run.id), target=run.target or "", scope=run.scope or "",
-                objective=run.objective or "comprehensive", findings=findings,
-                report_markdown=run.report_markdown or "",
-            )
-            html = render_html_report(data)
+            html = _render_html(build_report(run))
         except Exception as exc:  # noqa: BLE001
             return Response({"error": f"html render failed: {exc}"}, status=500)
         resp = HttpResponse(html, content_type="text/html")
