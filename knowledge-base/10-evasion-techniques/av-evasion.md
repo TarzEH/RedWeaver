@@ -445,3 +445,70 @@ xxd -b file.txt
 - Custom-compiled payloads evade better than default msfvenom output
 - Combine multiple techniques (encoding + packing + obfuscation) for best results
 - Always profile the target AV solution before crafting payloads
+
+---
+
+## Detection & Mitigation
+
+Blue-team guidance for detecting and preventing the AV/EDR-evasion techniques above.
+
+### Telemetry & Log Sources
+- **AMSI:** AMSI scan events; PowerShell Script Block Logging (4104), Module Logging (4103), Transcription.
+- **Sysmon:** Event ID 1 (process create + cmdline), 7 (image/DLL load — unsigned/rare), 8 (CreateRemoteThread), 10 (ProcessAccess to lsass/handles), 25 (process tampering — hollowing/herpaderping), 11 (file create).
+- **Defender / EDR:** Microsoft Defender operational + AMSI logs, EDR behavioral alerts, ASR-rule audit events.
+
+### Detection Logic
+- **AMSI tampering/bypass:** 4104 content matching known bypass patterns (`amsiInitFailed`, `[Ref].Assembly...AmsiUtils`), or AMSI suddenly returning clean after load.
+- **Obfuscated execution:** high-entropy or `-enc`/`-EncodedCommand` PowerShell, very long one-liners, `IEX`/`DownloadString`/reflection.
+- **Injection / unbacked memory:** Sysmon 8/10/25, RWX or unbacked (no image on disk) executable memory, `CreateRemoteThread` into another process, reflective/`.NET` in-memory loads (T1620).
+- **LOLBins / signed-proxy execution:** `rundll32`, `regsvr32`, `mshta`, `msbuild` spawning network or child processes from unusual parents.
+
+```yaml
+title: Potential AMSI Bypass via PowerShell Script Block
+logsource:
+  product: windows
+  category: ps_script        # Event ID 4104
+detection:
+  selection:
+    ScriptBlockText|contains:
+      - 'amsiInitFailed'
+      - 'AmsiUtils'
+      - 'AmsiScanBuffer'
+      - '[Ref].Assembly.GetType'
+  condition: selection
+level: high
+```
+
+```yaml
+title: Suspicious Remote Thread Injection
+logsource:
+  product: windows
+  category: create_remote_thread   # Sysmon Event ID 8
+detection:
+  selection:
+    TargetImage|endswith:
+      - '\lsass.exe'
+      - '\explorer.exe'
+      - '\svchost.exe'
+  condition: selection
+  # tune to source images that are not the normal injector for these targets
+level: high
+```
+
+### Hardening & Mitigations
+- **Enable & protect AMSI** and PowerShell logging; deploy **Constrained Language Mode**; remove/disable legacy **PowerShell v2**.
+- **Microsoft ASR rules:** block obfuscated scripts, block process injection, block credential stealing from LSASS, block executable content from email/USB.
+- **Application control:** WDAC/AppLocker (signed + trusted only); block untrusted LOLBin abuse paths.
+- **EDR in block (not audit) mode;** tamper protection on; LSASS protection (RunAsPPL / Credential Guard).
+- **Behavior Prevention on Endpoint** and up-to-date AV signatures + cloud-delivered protection.
+
+### MITRE ATT&CK Mapping
+
+| Technique | ID | Detect / Mitigate |
+|-----------|----|-------------------|
+| Obfuscated Files or Information | T1027 | Entropy/encoded-cmd detection; ASR block-obfuscated-scripts |
+| Impair Defenses: Disable/Modify Tools | T1562.001 | Alert on AV/EDR/AMSI tampering; tamper protection (M1040) |
+| Process Injection | T1055 | Sysmon 8/10/25; ASR block-process-injection; Behavior Prevention (M1040) |
+| Reflective Code Loading | T1620 | Unbacked-memory + in-memory .NET load detection |
+| Deobfuscate/Decode Files | T1140 | Script Block Logging + decoded-content analytics |
+| System Binary Proxy Execution | T1218 | LOLBin parent/child + network anomaly; WDAC (M1038) |

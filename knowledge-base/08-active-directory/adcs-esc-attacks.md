@@ -219,6 +219,177 @@ certipy ca -u admin@dom -p p -target <CA> -ca CA -backup
 
 ---
 
+## Detection & Mitigation
+
+Defensive guidance for AD CS abuse ESC1–ESC16, the universal PKINIT finish (`certipy auth`), Golden Certificate persistence, and the NTLM-relay ESCs (ESC8 HTTP, ESC11 RPC). The two richest signal sources are **CA issuance auditing on the CA host** and **DC PKINIT logon events**; cross-reference `ntlm-relay-and-coercion.md` for ESC8/ESC11 coercion detection.
+
+### Telemetry & Log Sources
+
+- **CA host (Certification Authority role) security log** — enable **"Audit Certification Services"** (Object Access subcategory) and CA-level auditing (`certutil -setreg CA\AuditFilter 127`, then restart certsvc):
+  - `4886` — Certificate Services received a certificate request.
+  - `4887` — Certificate Services approved and issued a certificate (carries Requester, **SAN/Subject**, template, request ID — the core ESC1/6/16 signal).
+  - `4888` — request denied; `4889` — request set to pending; `4885`/`4890`/`4891`/`4892` — CA service/role/config changes (ESC7, ESC6 `EDITF` flips, template enable).
+- **CaPolicy / CertSvc operational logs** and the CA database (`certutil -view`) for issued-cert SAN review and forensic reconstruction.
+- **Domain Controllers — PKINIT / certificate logon**:
+  - `4768` Kerberos TGT request where **Certificate Information** fields are populated (PKINIT) — ties an issued cert to a TGT and reveals the authenticating identity.
+  - `4624`/`4768` for certificate-based logon by accounts that normally use passwords (Shadow-cred / cert persistence).
+  - DC System log **Event 39/41** (Kdcsvc) — certificate **without a strong SID mapping** (the ESC9/ESC10/ESC14/ESC16 weak-mapping condition) once `StrongCertificateBindingEnforcement` is in audit/enforce mode.
+- **Directory object auditing (SACL, 4662 / 5136)** on the **PKI configuration containers** (`CN=Public Key Services,CN=Services,CN=Configuration,…`): writes to certificate templates (ESC4), `msPKI-Certificate-Name-Flag` / `pKIExtendedKeyUsage`, `msDS-OIDToGroupLink` (ESC13), and `altSecurityIdentities` on user/computer objects (ESC14).
+- **CA web enrollment (ESC8)** — IIS logs for `/certsrv/certfnsh.asp`, plus `4624` Logon Type 3 NTLM logons to the CA from machine accounts; EPA-disabled `/certsrv` is the exposure.
+- **NTLM-relay precursors (ESC8/ESC11)** — coercion auth patterns (PetitPotam/PrinterBug/DFSCoerce) inbound to attacker → outbound to CA; see the relay file for `4624`/`5145` patterns.
+- **EDR / network** — outbound RPC `ICertPassage` (ICPR) to the CA from unexpected hosts (ESC11); CA private-key export / backup operations (Golden Certificate, ESC7 `-backup`).
+
+### Detection Logic
+
+Key behavioral patterns:
+
+- **ESC1 / ESC6 / ESC16 (SAN injection)** — `4887` where the issued certificate's **SAN/UPN does not match the requesting account** (e.g. requester `lowuser` but SAN `administrator@domain`), or a requester whose Subject differs from their own identity. ESC6/ESC16 make this possible CA-wide, so any template can be the vehicle.
+- **ESC2 / ESC3 / ESC15 (enrollment-agent / on-behalf-of)** — `4886`/`4887` for certs bearing the **Certificate Request Agent** EKU (`1.3.6.1.4.1.311.20.2.1`) or Any-Purpose EKU, especially newly issued to non-PKI-admin users; ESC15 injects application policies into a V1 template (CVE-2024-49019) — watch for unexpected application-policy OIDs in V1 requests.
+- **ESC4 (template hijack)** — `5136`/`4662` modification of a certificate-template object (changes to `msPKI-Certificate-Name-Flag` enabling ENROLLEE_SUPPLIES_SUBJECT, or EKU additions) by a non-admin, typically followed minutes later by an ESC1-style issuance.
+- **ESC6 / ESC16 (CA config flip)** — CA config change events / `certutil` showing `EDITF_ATTRIBUTESUBJECTALTNAME2` set, or `DisableExtensionList` containing the SID OID (`1.3.6.1.4.1.311.25.2`).
+- **ESC7 (Manage CA / Manage Certificates)** — officer added, template enabled, or a previously **pending** request manually issued (`4889`→`4887` by an unexpected officer).
+- **ESC8 / ESC11 (relay)** — machine/DC account (`$`) authenticating to the CA web enrollment or RPC interface from a host that is not that machine, immediately yielding a cert; correlate with coercion events on the DC.
+- **ESC9 / ESC10 / ESC14 (weak mapping)** — Kdcsvc Event 39/41 on DCs (no strong SID mapping), or `5136` writes to `altSecurityIdentities` (ESC14) by non-admins.
+- **ESC13 (issuance-policy → group)** — `5136` write to `msDS-OIDToGroupLink` linking an issuance-policy OID to a privileged group; enrollment in such a template granting unexpected token membership.
+- **Golden Certificate / persistence** — CA private-key backup/export, or cert-based logons whose serial/issuance has **no corresponding `4886`/`4887` on the CA** (forged offline with the stolen CA key).
+
+```yaml
+title: AD CS ESC1/ESC6/ESC16 - Certificate Issued with Mismatched SAN
+id: e5c1-san-mismatch-4887
+status: experimental
+description: Certificate issued where the SubjectAltName/UPN does not match the requesting account, indicating enrollee-supplied-subject abuse (ESC1) or CA-wide SAN abuse (ESC6/ESC16).
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID: 4887                    # Certificate Services approved and issued a certificate
+  flag_priv_san:
+    SubjectAltName|contains:
+      - 'administrator@'
+      - 'domain admins'
+      - '-500'                       # well-known RID for built-in Administrator (SID-bound SAN)
+  condition: selection and flag_priv_san
+fields:
+  - Requester
+  - SubjectAltName
+  - CertificateTemplate
+  - RequestId
+falsepositives:
+  - Legitimate admin self-enrollment (baseline requester==SAN owner and allowlist)
+level: high
+tags:
+  - attack.privilege_escalation
+  - attack.t1649
+```
+
+```yaml
+title: AD CS ESC3/ESC15 - Enrollment Agent / Certificate Request Agent EKU Issued
+id: e5c3-enrollagent-eku-4887
+status: experimental
+description: Detects issuance of a certificate carrying the Certificate Request Agent EKU to a non-PKI-admin account, used for on-behalf-of enrollment (ESC3) or EKUwu/application-policy injection (ESC15).
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID:
+      - 4886
+      - 4887
+    EnhancedKeyUsage|contains: '1.3.6.1.4.1.311.20.2.1'   # Certificate Request Agent
+  condition: selection
+fields:
+  - Requester
+  - CertificateTemplate
+  - RequestId
+falsepositives:
+  - Designated enrollment-agent operators (allowlist their accounts)
+level: high
+tags:
+  - attack.privilege_escalation
+  - attack.t1649
+```
+
+```yaml
+title: AD CS ESC4 - Certificate Template Modified
+id: e5c4-template-write-5136
+status: experimental
+description: Detects modification of a certificate-template AD object (e.g. enabling enrollee-supplied subject or adding a client-auth EKU), the precursor to ESC1-style abuse.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID: 5136
+    ObjectClass: 'pKICertificateTemplate'
+  attrs:
+    AttributeLDAPDisplayName:
+      - 'msPKI-Certificate-Name-Flag'
+      - 'pKIExtendedKeyUsage'
+      - 'msPKI-Enrollment-Flag'
+      - 'msPKI-Certificate-Application-Policy'
+  filter_pki_admins:
+    SubjectUserName|in: '%PkiAdmins%'
+  condition: selection and attrs and not filter_pki_admins
+fields:
+  - SubjectUserName
+  - ObjectDN
+  - AttributeLDAPDisplayName
+  - AttributeValue
+falsepositives:
+  - Authorized PKI administrators performing template maintenance
+level: high
+tags:
+  - attack.privilege_escalation
+  - attack.t1649
+  - attack.t1098
+```
+
+KQL (Sentinel / Defender) — ESC8/ESC11 relay: machine account enrolling from a foreign host:
+
+```kql
+SecurityEvent
+| where EventID == 4887                       // certificate issued
+| where Requester endswith "$"                // machine/DC account
+| extend ReqHost = tostring(split(Requester, "$")[0])
+| where Computer !contains ReqHost            // issued for a machine that isn't the one enrolling
+| project TimeGenerated, Computer, Requester, SubjectAltName, CertificateTemplate, RequestId
+| order by TimeGenerated desc
+```
+
+Splunk SPL — ESC13 issuance-policy link to a privileged group:
+
+```spl
+index=wineventlog EventCode=5136 Attribute_LDAP_Display_Name="msDS-OIDToGroupLink"
+| stats values(Object_DN) as policy_oid values(Attribute_Value) as linked_group by Account_Name, _time
+| where isnotnull(linked_group)
+```
+
+### Hardening & Mitigations
+
+- **Enforce strong certificate mapping** — deploy KB5014754 and set `StrongCertificateBindingEnforcement = 2` (Full Enforcement) on DCs so certs must carry the **SID security extension** (`szOID_NTDS_CA_SECURITY_EXT`); set `CertificateMappingMethods` to drop weak (UPN/issuer-subject) mappings. Defeats ESC9/ESC10/ESC14/ESC16 (T1649).
+- **Remove `EDITF_ATTRIBUTESUBJECTALTNAME2`** from every CA (`certutil -setreg policy\EditFlags -EDITF_ATTRIBUTESUBJECTALTNAME2`, restart certsvc) and never re-enable it. Kills ESC6 (and the CA-wide SAN path).
+- **Harden templates (ESC1/ESC2/ESC4)** — clear `CT_FLAG_ENROLLEE_SUPPLIES_SUBJECT` on client-auth templates; require **Manager Approval** (`CT_FLAG_PEND_ALL_REQUESTS`) and/or authorized signatures for sensitive templates; remove Any-Purpose / no-EKU and over-broad EKUs; scope **Enroll/AutoEnroll** ACLs to least privilege and remove write access for non-PKI-admins. Audit with `certipy find -vulnerable` (blue-team self-assessment).
+- **Restrict CA roles (ESC7)** — limit **ManageCA** and **ManageCertificates** to a tiny, audited admin set; alert on officer additions and template enable.
+- **Lock down enrollment-agent templates (ESC3)** — restrict who can enroll for the Certificate Request Agent EKU and constrain agents to specific templates/subjects via Enrollment Agent Restrictions.
+- **Patch ESC15 / CVE-2024-49019 (EKUwu)** — apply the November 2024 updates; remediate/retire V1-schema templates that allow application-policy injection.
+- **Kill the relay ESCs (ESC8/ESC11)** — enable **Extended Protection for Authentication (EPA)** on the CA web enrollment (`/certsrv`), set the IIS site to require SSL/HTTPS, and enable `IF_ENFORCEENCRYPTICERTREQUEST` so the RPC (ICPR) interface requires packet privacy/encryption (ESC11). Disable NTLM to the CA and prefer Kerberos; ideally remove web enrollment if unused. Pair with coercion mitigations (RPC filters, see `ntlm-relay-and-coercion.md`). Maps to D3FEND Message Authentication / Inbound Traffic Filtering.
+- **Constrain issuance-policy links (ESC13)** — audit and minimize `msDS-OIDToGroupLink`; never link an issuance policy to a privileged group.
+- **Protect the CA private key (Golden Certificate / DPERSIST)** — store the CA key in an HSM (non-exportable), restrict and audit `certipy ca -backup` / key-export operations, and on suspected compromise be prepared to revoke and rebuild the PKI hierarchy. Monitor for issued-cert logons with no matching `4886`/`4887`.
+- **Tighten certificate lifetimes & enable revocation** — shorter validity reduces the persistence window for stolen/forged certs; maintain working CRL/OCSP and revoke on incident.
+
+### MITRE ATT&CK Mapping
+
+| Technique | ID | Detection / Mitigation note |
+|-----------|----|------------------------------|
+| Steal or Forge Authentication Certificates | T1649 | 4887 SAN-mismatch issuance; strong cert binding; template hardening; HSM-protected CA key |
+| Account Manipulation (ESC4 template / ESC13 / ESC14 writes) | T1098 | SACL audit on PKI containers and altSecurityIdentities/OIDToGroupLink; least-priv ACLs |
+| Valid Accounts: Domain Accounts (PKINIT logon as priv principal) | T1078.002 | DC PKINIT 4768 with cert info; cert logon by password-only accounts |
+| Adversary-in-the-Middle: LLMNR/NBT-NS / relay to AD CS (ESC8/ESC11) | T1557.001 | Machine account enrolling from a foreign host; EPA on /certsrv; IF_ENFORCEENCRYPTICERTREQUEST |
+| Forced Authentication / coercion driving relay ESCs | T1187 | RPC filters; correlate coercion auth with CA enrollment; see ntlm-relay-and-coercion.md |
+
+---
+
 ## References
 
 - Certipy wiki — https://github.com/ly4k/Certipy/wiki

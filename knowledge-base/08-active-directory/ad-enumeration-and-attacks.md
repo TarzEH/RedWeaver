@@ -225,6 +225,165 @@ impacket-ticketer -nthash <krbtgt> -domain-sid <SID> -domain dom Administrator
 
 ---
 
+## Detection & Mitigation
+
+> Blue-team companion to the kill-chain above. This file covers the full AD attack methodology — anonymous/null enumeration, RID cycling, Kerberos user-enum, AS-REP roasting, password spraying, authenticated LDAP/SMB recon (NetExec/PowerView), BloodHound collection, and domain-dominance/DCSync. Detection here emphasizes the **enumeration and initial-access phases** that precede the deep-dive techniques in the companion files; ACL-, Kerberos-, ADCS-, and relay-specific detections live in their respective files.
+
+### Telemetry & Log Sources
+
+- **Authentication telemetry**: **4768** (Kerberos TGT requested — AS-REQ), **4769** (service ticket — TGS, the kerberoast signal), **4771** (Kerberos pre-auth failed — spray/enum signal), **4625** (NTLM/interactive logon failure — spray), **4624** (successful logon, with `LogonType` 3=network), **4776** (NTLM credential validation on DC). Failure-code fields (`0x18` bad password, `0x6` no such user, `0x12` disabled/locked) distinguish user-enumeration from password-spraying.
+- **Account lockout / bad-password tracking**: **4740** (account locked out), and `badPwdCount`/`lockoutTime` movement across the DC fleet — spray hits many accounts with few attempts each, so per-account counts look benign; the *fleet-wide* pattern is the tell.
+- **LDAP query logging**: enable the **"Field Engineering" diagnostic** (`HKLM\SYSTEM\CurrentControlSet\Services\NTDS\Diagnostics → 15 Field Engineering = 5`) to emit **Event 1644** (expensive/inefficient/slow LDAP searches) — surfaces the broad `(objectClass=*)` / `(samAccountType=...)` sweeps that SharpHound, ldapdomaindump, windapsearch and `nxc ldap` generate. Microsoft Defender for Identity captures LDAP recon without this registry change.
+- **Directory Service Access — 4662**: object-access auditing on AD objects; combined with SACLs, surfaces mass property reads consistent with collection.
+- **SMB / share enumeration**: **5140/5145** (network share accessed / detailed file-share access), **5142-5145** for share spidering; useful against `--shares`/`spider_plus` style crawls. **SMB null/anonymous session** attempts also show as 4624/4625 LogonType 3 with anonymous/guest.
+- **RPC / SAMR enumeration**: **4661** (handle to SAM object) and Defender for Identity "Security principal reconnaissance (LDAP)" / "User and Group membership reconnaissance (SAMR)" alerts catch `enumdomusers`, `--rid-brute`, and `lookupsid`.
+- **DNS / network**: zone-transfer attempts, and the AD DNS query volume from a single recon host. NetFlow/Zeek can flag a workstation suddenly opening LDAP/389, GC/3268, SMB/445, Kerberos/88 to the whole subnet.
+- **Microsoft Defender for Identity (MDI) / ATA**: behavioral detections for reconnaissance (SAMR/LDAP/DNS), password spray, AS-REP roast, and lateral movement — derived from DC network traffic.
+- **Honeytoken accounts**: a decoy user/SPN with no legitimate use — any 4768/4769/4625 referencing it is high-fidelity.
+
+### Detection Logic
+
+Behavioral patterns to alert on:
+- **Password spray**: many distinct `TargetUserName` values with `4771`/`4625`/`4776` failures from a single source IP/host within a short window, low attempts-per-account (stays under lockout). Add `4768` failures with code `0x18`.
+- **Kerberos user enumeration** (kerbrute userenum): bursts of `4768` with failure code `0x6` (`KDC_ERR_C_PRINCIPAL_UNKNOWN`) — valid users return a different code, so the attacker is mapping the namespace without authenticating.
+- **AS-REP roastable harvest**: `4768` for accounts with `Pre-Authentication Type = 0` (no pre-auth), especially many at once / from one host.
+- **RID cycling / SAMR enumeration**: rapid sequential SID lookups (4661/4662) or MDI SAMR-recon alert from a non-admin host.
+- **Mass LDAP enumeration (BloodHound/ldapdomaindump)**: spikes of Event **1644** or a single principal issuing thousands of LDAP searches with broad filters in minutes — see the dedicated SharpHound detection in `bloodhound-and-recon.md`.
+- **Recon from a non-admin / unusual host**: PowerView/AD-module style queries (broad LDAP, `Get-NetSession`, share enumeration) originating from a standard workstation rather than a management/PAW host.
+- **DCSync / domain dominance**: replication access (4662 replication GUIDs) from a non-DC — covered in depth in `acl-abuse-and-dacl.md`.
+- **Honeytoken touch**: any authentication or query referencing a decoy principal.
+
+```yaml
+title: Kerberos Password Spray (Many Accounts, Few Attempts, One Source)
+id: 7c2a91de-4f30-49b8-b6c1-2a9e5d3f1c08
+status: experimental
+description: Detects password spraying via a high count of distinct target accounts experiencing Kerberos pre-auth / NTLM logon failures from a single source in a short window — the spray signature in the initial-access phase.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection_krb:
+    EventID: 4771
+    Status: '0x18'        # KDC_ERR_PREAUTH_FAILED (bad password)
+  selection_ntlm:
+    EventID:
+      - 4625
+      - 4776
+  condition: selection_krb or selection_ntlm
+  timeframe: 10m
+fields:
+  - IpAddress
+  - TargetUserName
+  - Workstation
+falsepositives:
+  - Misconfigured service with stale credentials hammering many accounts
+  - Vulnerability scanners / authenticated scanners
+level: high
+tags:
+  - attack.credential-access
+  - attack.t1110.003
+```
+
+```yaml
+title: Kerberos User Enumeration (kerbrute-style PRINCIPAL_UNKNOWN burst)
+id: b1d4e7a2-6c09-4f51-9d3a-8e0c2b5a7f14
+status: experimental
+description: Detects username enumeration over Kerberos — a burst of AS-REQ failures with KDC_ERR_C_PRINCIPAL_UNKNOWN, indicating an attacker mapping valid usernames without authenticating.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID: 4768
+    Status: '0x6'        # KDC_ERR_C_PRINCIPAL_UNKNOWN
+  condition: selection | count(TargetUserName) by IpAddress > 20
+  timeframe: 5m
+fields:
+  - IpAddress
+  - TargetUserName
+falsepositives:
+  - Typos at scale / a broken SSO integration referencing non-existent principals
+level: medium
+tags:
+  - attack.reconnaissance
+  - attack.t1087.002
+```
+
+```yaml
+title: AS-REP Roastable Account Harvest (No-Preauth TGT Requests)
+id: e5f0c813-2a47-4b6d-9c1e-4d7a9b2c6e30
+status: experimental
+description: Detects AS-REP roasting reconnaissance — Kerberos AS-REQ for accounts with pre-authentication disabled, especially many distinct accounts from one source.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID: 4768
+    PreAuthType: '0'     # pre-authentication not required
+  condition: selection | count(TargetUserName) by IpAddress > 3
+  timeframe: 10m
+fields:
+  - IpAddress
+  - TargetUserName
+  - TicketEncryptionType
+falsepositives:
+  - Legacy apps/accounts legitimately configured without pre-auth (baseline and allowlist them)
+level: medium
+tags:
+  - attack.credential-access
+  - attack.t1558.004
+```
+
+KQL (Defender for Identity / Sentinel — SAMR / LDAP reconnaissance from a single actor):
+
+```kql
+IdentityDirectoryEvents
+| where ActionType in ("LDAP query", "SAMR enumeration", "Account enumeration reconnaissance")
+| summarize Queries=count(), Targets=dcount(TargetAccountUpn) by AccountUpn, DeviceName, bin(Timestamp, 5m)
+| where Queries > 200 or Targets > 100
+| project Timestamp, AccountUpn, DeviceName, Queries, Targets
+```
+
+Splunk SPL (fleet-wide password spray — distinct targets per source):
+
+```spl
+index=wineventlog (EventCode=4771 Status=0x18) OR (EventCode=4776 Keywords="Audit Failure")
+| bucket _time span=10m
+| stats dc(TargetUserName) as targeted_accounts values(TargetUserName) as accounts by _time, IpAddress
+| where targeted_accounts >= 15
+```
+
+### Hardening & Mitigations
+
+- **Disable anonymous/null LDAP & SMB**: set `dSHeuristics` to deny anonymous LDAP ops; restrict `RestrictAnonymous`/`RestrictAnonymousSAM`; disable the **Guest** account; block null sessions. Kills RID cycling, `enum4linux`, anonymous `ldapsearch`, and SAMR enumeration. (Counters **T1087 / T1069**.)
+- **Strong lockout & spray-resistant policy**: smart lockout / fine-grained password policies, banned-password lists (Entra Password Protection on-prem agent), and MFA for any externally-reachable auth surface. Monitor fleet-wide `badPwdCount`. (Counters **T1110.003**.)
+- **Eliminate AS-REP roastable accounts**: require Kerberos pre-authentication for all accounts (audit `DoesNotRequirePreAuth`); strong/randomized passwords for any that must keep it. (Counters **T1558.004**.)
+- **Enable LDAP recon visibility**: turn on Field Engineering diagnostics (1644) or deploy Defender for Identity; baseline normal LDAP query volume per host so SharpHound-style sweeps stand out.
+- **Tiered admin model & PAWs**: admin/recon tooling should originate only from Privileged Access Workstations; recon from a standard workstation is itself a signal. (D3FEND: Privileged Account Management.)
+- **Network segmentation**: restrict which hosts can reach DC LDAP/389, GC/3268, SMB/445, Kerberos/88 broadly; a workstation fan-scanning these ports is anomalous. (Counters **T1018 / T1046**.)
+- **Honeytoken accounts & decoy SPNs**: deploy via MDI honeytokens; any auth/query against them is high-confidence malicious.
+- **Reduce trust-attack surface**: enable SID Filtering on trusts, audit `Get-DomainTrust`/`Get-ForestTrust` results, and minimize over-permissive cross-domain/forest trusts. (Counters **T1482 — Domain Trust Discovery**.)
+- **Restrict domain dominance primitives**: replication rights only to DCs + Entra Connect; protect `krbtgt` (rotate twice on compromise); Protected Users for Tier-0. (Counters **T1003.006**.)
+- **SMB hygiene**: enforce SMB signing (also denies relay — see `ntlm-relay-and-coercion.md`) and remove over-shared SYSVOL/share access that spidering preys on.
+
+### MITRE ATT&CK Mapping
+
+| Technique | ID | Detection / Mitigation note |
+|-----------|-----|------------------------------|
+| Account Discovery: Domain Account | T1087.002 | Alert on RID cycling / SAMR / Kerberos user-enum bursts; disable null sessions |
+| Permission Groups Discovery: Domain Groups | T1069.002 | LDAP recon (1644)/MDI alerts; restrict anonymous group enumeration |
+| Domain Trust Discovery | T1482 | Audit trust enumeration; SID filtering; minimize trusts |
+| Remote System Discovery | T1018 | Network segmentation + Zeek/NetFlow on DC-port fan-out from one host |
+| Network Service Discovery | T1046 | Alert on broad LDAP/SMB/Kerberos port scans from workstations |
+| Brute Force: Password Spraying | T1110.003 | Fleet-wide 4771/4776 failures from one source; smart lockout + MFA |
+| Steal/Forge Tickets: AS-REP Roasting | T1558.004 | 4768 with PreAuthType 0; require Kerberos pre-auth on all accounts |
+| Steal/Forge Tickets: Kerberoasting | T1558.003 | 4769 anomalies (RC4/many SPNs); see `kerberos-attacks.md` |
+| OS Credential Dumping: DCSync | T1003.006 | 4662 replication GUIDs from non-DC; restrict replication; Defender for Identity |
+| Valid Accounts: Domain Accounts | T1078.002 | Tiered admin, PAWs, JIT/PAM; recon from non-PAW host as a signal |
+
+---
+
 ## References
 
 - The Hacker Recipes – Active Directory — https://www.thehacker.recipes/ad/

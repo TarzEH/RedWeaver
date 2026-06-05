@@ -142,6 +142,172 @@ certipy auth -pfx out.pfx -dc-ip <DC>
 
 ---
 
+## Detection & Mitigation
+
+Defensive guidance for the techniques above: LLMNR/NBT-NS/mDNS poisoning (Responder), IPv6/DHCPv6 DNS takeover (mitm6), coercion (PetitPotam/MS-EFSR, PrinterBug/MS-RPRN, DFSCoerce/MS-DFSNM, ShadowCoerce/MS-FSRVP), and NTLM relay to SMB, LDAP(S), and AD CS (ESC8 HTTP / ESC11 RPC). The two most durable defenses are **enforced signing/channel-binding everywhere** and **eliminating the name-resolution poisoning + NTLM exposure** that feed relay.
+
+### Telemetry & Log Sources
+
+- **Domain Controllers & member servers — Security log**:
+  - `4624` — successful logon. **Logon Type 3 + NTLM** authentication, especially for **machine accounts (`$`)** authenticating from a host that is not themselves, is the core relay signal.
+  - `4625` — failed logon (relay/spray noise, EPA mismatches).
+  - `4768`/`4769` — to correlate post-relay Kerberos activity (e.g. relayed-cert TGT for a DC).
+  - `4662` / `5136` — directory writes from relayed LDAP sessions: `--escalate-user` (DCSync grant via `Replicating Directory Changes`), `--delegate-access` (RBCD via `msDS-AllowedToActOnBehalfOfOtherIdentity`), `--shadow-credentials` (`msDS-KeyCredentialLink`).
+  - `5145` — detailed file-share access; coercion via EFSRPC/DFSNM touches named pipes (`\PIPE\lsarpc`, `\PIPE\efsrpc`, `\PIPE\netdfs`, `\PIPE\spoolss`, `\PIPE\FssagentRpc`).
+  - `4741`/`4742` — computer account created/modified (relay-driven RBCD machine accounts).
+- **AD CS CA host** — `4886`/`4887` issuance, IIS logs for `/certsrv/certfnsh.asp` (ESC8), unexpected ICPR/RPC enrollment (ESC11); see `adcs-esc-attacks.md`.
+- **DNS** — DNS server analytic/audit logs for sudden DHCPv6-driven IPv6 DNS registration / WPAD answers (mitm6), and dynamic-update anomalies.
+- **Network / NDR** — LLMNR (UDP 5355), NBT-NS (UDP 137), mDNS (UDP 5353) responses from non-authoritative hosts; rogue DHCPv6 (RA/Advertise) traffic; WPAD requests; inbound MS-RPRN/MS-EFSR/MS-DFSNM/MS-FSRVP RPC to DCs from non-admin hosts.
+- **EDR / Sysmon** — Sysmon Event 22 (DNS query for `wpad`, `isatap`), Event 3 (network connections to attacker listeners), pipe events (17/18) for the coercion pipes above; detection of Responder/mitm6/ntlmrelayx/Coercer tooling on endpoints.
+- **Endpoint config telemetry** — verify enforced state of SMB signing, LDAP signing + channel binding, and EPA via host inventory (don't assume policy = enforcement).
+
+### Detection Logic
+
+Key behavioral patterns:
+
+- **Relay (the universal tell)** — `4624` Logon Type 3, **NTLM** package, where the authenticating account is a **machine account** and the `WorkstationName` / source IP does not match that machine — i.e. one machine's identity arriving from somewhere else. Correlate immediate sensitive directory writes (4662/5136) or cert issuance.
+- **Coercion** — inbound RPC to a DC on `MS-EFSR` (EfsRpcOpenFileRaw etc.), `MS-RPRN` (`RpcRemoteFindFirstPrinterChangeNotification`), `MS-DFSNM` (`NetrDfsAddStdRoot`), or `MS-FSRVP`, from a non-administrative source, followed by an outbound auth from the DC to that source. Pipe access (`5145` / Sysmon 17/18) to `efsrpc`/`netdfs`/`spoolss`/`FssagentRpc`.
+- **LLMNR/NBT-NS/mDNS poisoning** — repeated multicast name-resolution answers from a single host claiming many names; spike in NTLMv2 challenge/response to a non-server host.
+- **mitm6** — a workstation suddenly advertising itself as IPv6 DNS / WPAD; bursts of machine NTLM auth as DHCPv6 leases renew.
+- **Post-relay LDAP abuse** — `5136` granting `Replicating Directory Changes` to a non-DC principal (DCSync escalation), or writing RBCD/KeyCredentialLink attributes (cross-reference `kerberos-attacks.md`).
+
+```yaml
+title: NTLM Relay - Machine Account Authenticating from Foreign Host
+id: ntlmrelay-machine-foreign-4624
+status: experimental
+description: Detects a computer account performing an NTLM network logon from a host that is not itself, the hallmark of an NTLM relay.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID: 4624
+    LogonType: 3
+    AuthenticationPackageName: 'NTLM'
+    TargetUserName|endswith: '$'        # machine account
+  filter_self:
+    TargetUserName|fieldref: WorkstationName   # account name matches source workstation
+  condition: selection and not filter_self
+fields:
+  - TargetUserName
+  - WorkstationName
+  - IpAddress
+  - TargetServerName
+falsepositives:
+  - Some legitimate cluster/backup software uses machine accounts over NTLM (baseline and allowlist)
+level: high
+tags:
+  - attack.credential_access
+  - attack.lateral_movement
+  - attack.t1557.001
+```
+
+```yaml
+title: Authentication Coercion - EFSRPC / DFSNM / RPRN Named-Pipe Access on DC
+id: coerce-pipe-access-5145
+status: experimental
+description: Detects access to the named pipes abused by PetitPotam (MS-EFSR), DFSCoerce (MS-DFSNM), PrinterBug (MS-RPRN), and ShadowCoerce (MS-FSRVP) from non-administrative hosts.
+logsource:
+  product: windows
+  service: security
+detection:
+  selection:
+    EventID: 5145
+    ShareName: '\\\\*\\IPC$'
+    RelativeTargetName:
+      - 'efsrpc'
+      - 'lsarpc'
+      - 'netdfs'
+      - 'spoolss'
+      - 'FssagentRpc'
+  condition: selection
+fields:
+  - SubjectUserName
+  - IpAddress
+  - RelativeTargetName
+falsepositives:
+  - Legitimate printer/DFS administration from known management hosts (allowlist)
+level: medium
+tags:
+  - attack.credential_access
+  - attack.t1187
+```
+
+```yaml
+title: mitm6 - Rogue IPv6 DNS / WPAD Activity
+id: mitm6-wpad-sysmon-22
+status: experimental
+description: Detects WPAD/ISATAP DNS queries and rogue IPv6 DNS behavior associated with mitm6 DHCPv6 takeover.
+logsource:
+  product: windows
+  service: sysmon
+detection:
+  selection:
+    EventID: 22                          # Sysmon DNS query
+    QueryName|contains:
+      - 'wpad'
+      - 'ISATAP'
+  condition: selection
+fields:
+  - Computer
+  - QueryName
+  - Image
+falsepositives:
+  - Environments that legitimately use WPAD (disable WPAD and treat any query as suspicious)
+level: medium
+tags:
+  - attack.credential_access
+  - attack.t1557
+```
+
+KQL (Sentinel / Defender) — post-relay LDAP escalation (DCSync grant or RBCD/Shadow-cred write):
+
+```kql
+SecurityEvent
+| where EventID in (5136, 4662)
+| where AccessMask has_any ("Replicating Directory Changes", "DS-Replication-Get-Changes")
+    or AttributeLDAPDisplayName in ("msDS-AllowedToActOnBehalfOfOtherIdentity", "msDS-KeyCredentialLink")
+| where SubjectUserName !in (KnownDomainControllersAndAdmins)
+| project TimeGenerated, Computer, SubjectUserName, AttributeLDAPDisplayName, AccessMask, ObjectDN
+| order by TimeGenerated desc
+```
+
+Splunk SPL — coercion-driven outbound auth: machine NTLM logon shortly after inbound RPC pipe access:
+
+```spl
+index=wineventlog EventCode=4624 Logon_Type=3 Authentication_Package=NTLM Account_Name="*$"
+| eval src=Source_Network_Address
+| where Workstation_Name!=mvindex(split(Account_Name,"$"),0)
+| stats count values(Workstation_Name) as workstations by Account_Name, src
+| where count > 1
+```
+
+### Hardening & Mitigations
+
+- **Enforce SMB signing everywhere** (require on clients and servers; default-on direction in recent Windows). Removes SMB as a relay target (D3FEND Message Authentication). Verify enforcement with `nxc smb --gen-relay-list` returning empty.
+- **Require LDAP signing + LDAP channel binding (EPA)** on all DCs (`LdapEnforceChannelBinding`, `LDAPServerIntegrity`) — defeats LDAP/LDAPS relay (the path to DCSync/RBCD/Shadow-cred escalation).
+- **Enable Extended Protection for Authentication (EPA)** on HTTP services that accept NTLM, especially AD CS web enrollment `/certsrv` (kills ESC8) and on Exchange/other web auth; enforce `IF_ENFORCEENCRYPTICERTREQUEST` for the CA RPC interface (kills ESC11). See `adcs-esc-attacks.md`.
+- **Disable LLMNR, NBT-NS, and mDNS** (GPO: Turn off multicast name resolution; disable NetBIOS over TCP/IP; disable mDNS) and disable/ harden **WPAD** — removes Responder's poisoning surface (D3FEND DNS/Network configuration).
+- **Block rogue DHCPv6 / disable IPv6 where unused** — DHCPv6 Guard / RA Guard on switches, or disable IPv6 if the environment doesn't use it, to neutralize mitm6. Filter inbound DHCPv6 from non-DHCP hosts.
+- **Reduce/eliminate NTLM** — audit with `RestrictSendingNTLMTraffic`, move to Kerberos, and where feasible block NTLM (`RestrictNTLM`); fewer NTLM authentications means fewer relayable credentials. Add high-value accounts to **Protected Users** (no NTLM).
+- **Mitigate coercion at the RPC layer** — deploy **RPC Filters** to block MS-RPRN, MS-EFSR, MS-DFSNM, and MS-FSRVP from untrusted sources; **disable the Print Spooler** on DCs and servers that don't print (kills PrinterBug); apply current patches (PetitPotam/MS-EFSR hardening). Maps to D3FEND Inbound Traffic Filtering.
+- **Disable the WebClient (WebDAV) service** on hosts that don't need it — removes the HTTP-coercion pivot used to reach HTTP/LDAP relay targets (ESC8).
+- **Harden delegation & directory ACLs** — set MachineAccountQuota to 0, restrict who can write `msDS-AllowedToActOnBehalfOfOtherIdentity` and `msDS-KeyCredentialLink`, and tightly control `Replicating Directory Changes` so a relayed LDAP session cannot escalate. Cross-reference `kerberos-attacks.md`.
+- **Network segmentation & monitoring** — restrict which subnets can reach DC/CA management interfaces; deploy honeytokens/decoy hosts to surface poisoning early (D3FEND Decoy Network Resource).
+
+### MITRE ATT&CK Mapping
+
+| Technique | ID | Detection / Mitigation note |
+|-----------|----|------------------------------|
+| Adversary-in-the-Middle: LLMNR/NBT-NS Poisoning and SMB Relay | T1557.001 | Disable LLMNR/NBT-NS/mDNS; enforce SMB/LDAP signing + EPA; alert on machine NTLM logon from foreign host |
+| Adversary-in-the-Middle (IPv6/DHCPv6 takeover, mitm6) | T1557 | DHCPv6/RA Guard; disable IPv6 if unused; Sysmon WPAD query detection |
+| Forced Authentication (PetitPotam/PrinterBug/DFSCoerce/ShadowCoerce) | T1187 | RPC filters for EFSR/RPRN/DFSNM/FSRVP; disable Spooler/WebClient; pipe-access auditing |
+| Account Manipulation (relayed LDAP → RBCD / Shadow Credentials) | T1098 | Audit msDS-AllowedToActOnBehalfOfOtherIdentity / msDS-KeyCredentialLink writes; LDAP signing+EPA |
+| OS Credential Dumping: DCSync (relayed --escalate-user) | T1003.006 | Restrict & alert on Replicating Directory Changes grants; LDAP channel binding |
+| Steal or Forge Authentication Certificates (ESC8/ESC11 via relay) | T1649 | EPA on /certsrv; IF_ENFORCEENCRYPTICERTREQUEST; see adcs-esc-attacks.md |
+
+---
+
 ## References
 
 - The Hacker Recipes – NTLM relay — https://www.thehacker.recipes/ad/movement/ntlm/relay
