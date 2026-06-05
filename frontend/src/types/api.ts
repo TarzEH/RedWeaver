@@ -178,6 +178,39 @@ export interface RemediationPriority {
   cvss_score: number | null;
 }
 
+/** OWASP Top 10 category coverage entry. */
+export interface OwaspCategory {
+  category: string;
+  count: number;
+}
+
+/** MITRE ATT&CK technique coverage entry. */
+export interface MitreTechnique {
+  technique: string;
+  count: number;
+}
+
+/** Compliance / framework mapping for the report. */
+export interface ReportCompliance {
+  owasp_top_10?: OwaspCategory[];
+  mitre_attack?: MitreTechnique[];
+}
+
+/** White-label branding for the report header. */
+export interface ReportBranding {
+  name?: string;
+  color?: string;
+  logo_url?: string;
+}
+
+/** Optional LLM/token cost breakdown for the run. */
+export interface ReportCost {
+  total_usd?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  model?: string;
+}
+
 export interface VulnerabilityReport {
   run_id: string;
   target: string;
@@ -198,4 +231,10 @@ export interface VulnerabilityReport {
   agents_executed: string[];
   tools_used: string[];
   remediation_priorities: RemediationPriority[];
+  /** Framework coverage (OWASP Top 10 / MITRE ATT&CK). */
+  compliance?: ReportCompliance;
+  /** White-label branding for premium / pro reports. */
+  branding?: ReportBranding;
+  /** Optional token / dollar cost breakdown for the run. */
+  cost?: ReportCost;
 }

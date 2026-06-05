@@ -7,6 +7,9 @@ import { KnowledgePage } from "../features/knowledge/KnowledgePage";
 import { SettingsPage } from "../features/settings/SettingsPage";
 import { DebugPage } from "../features/debug/DebugPage";
 import { FindingsPage } from "../features/findings/FindingsPage";
+import { ReportView } from "../features/report/ReportView";
+import { AssetInventoryPage } from "../features/insights/AssetInventoryPage";
+import { RunComparePage } from "../features/insights/RunComparePage";
 
 export function AppRouter() {
   return (
@@ -17,6 +20,9 @@ export function AppRouter() {
         <Route path="/hunt" element={<HuntPage />} />
         <Route path="/hunt/:runId" element={<HuntPage />} />
         <Route path="/hunt/:runId/findings" element={<FindingsPage />} />
+        <Route path="/hunt/:runId/report" element={<ReportView />} />
+        <Route path="/hunt/:runId/compare" element={<RunComparePage />} />
+        <Route path="/sessions/:sessionId/assets" element={<AssetInventoryPage />} />
         <Route path="/debug/:runId" element={<DebugPage />} />
         <Route path="/sessions" element={<SessionsPage />} />
         <Route path="/knowledge" element={<KnowledgePage />} />
