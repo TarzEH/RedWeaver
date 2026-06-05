@@ -4,6 +4,8 @@ import { api } from "../../services/api";
 import type { AttackPlan } from "../../services/api";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
+import { useToast } from "../../components/ui/feedback";
+import { openInNavigator, NAVIGATOR_URL } from "../../lib/navigator";
 import { cn } from "../../lib/cn";
 
 /** Curated ATT&CK techniques RedWeaver can exercise, grouped by tactic. Ids here
@@ -87,8 +89,6 @@ const CATALOG: { tactic: string; label: string; techniques: { id: string; name: 
   },
 ];
 
-const NAVIGATOR_URL = "https://mitre-attack.github.io/attack-navigator/";
-
 interface AttackPlanModalProps {
   /** Representative target string (drives target-type scoping in the preview). */
   target: string;
@@ -112,6 +112,13 @@ export function AttackPlanModal({
   const [layerError, setLayerError] = useState<string | null>(null);
   const [plan, setPlan] = useState<AttackPlan | null>(null);
   const [previewing, setPreviewing] = useState(false);
+  const toast = useToast();
+
+  const openPlanInNavigator = () => {
+    if (!plan?.layer) return;
+    openInNavigator(plan.layer, "redweaver-attack-plan.json");
+    toast.info("Plan layer downloaded — in the Navigator choose 'Open Existing Layer → Upload'.");
+  };
 
   // Techniques to send: explicit picks, else parsed-from-layer ids (best-effort
   // local parse just to drive the preview; the server re-parses authoritatively).
@@ -337,6 +344,15 @@ export function AttackPlanModal({
               : `Hunt scoped to ${total} ATT&CK technique${total === 1 ? "" : "s"}.`}
           </p>
           <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              icon={<ExternalLink size={14} />}
+              disabled={!plan?.layer || total === 0}
+              onClick={openPlanInNavigator}
+            >
+              Open plan in Navigator
+            </Button>
             <Button variant="ghost" size="sm" onClick={onClose}>
               Cancel
             </Button>
