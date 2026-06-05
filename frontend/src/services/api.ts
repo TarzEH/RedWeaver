@@ -96,6 +96,17 @@ export interface KbDocument {
   content: string;
 }
 
+/** Pre-hunt ATT&CK plan: which agents/tactics a hunt scoped to the selected
+ * MITRE ATT&CK techniques would run. Returned by POST /api/attack/plan. */
+export interface AttackPlan {
+  target_type: string;
+  techniques: string[];
+  unknown: string[];
+  tactics: string[];
+  agent_selection: string[];
+  focus: string;
+}
+
 /* ── Types matching backend DTOs ── */
 
 export interface WorkspaceResponse {
@@ -244,6 +255,21 @@ export const api = {
       request<PostureSeries>(`/api/sessions/${sessionId}/posture`),
   },
 
+  attack: {
+    // Preview the pre-hunt plan derived from selected ATT&CK techniques or a
+    // Navigator layer, without starting a hunt.
+    plan: (body: {
+      target?: string;
+      attack_techniques?: string[];
+      navigator_layer?: Record<string, unknown>;
+      ssh_config?: Record<string, unknown>;
+    }) =>
+      request<AttackPlan>("/api/attack/plan", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+  },
+
   chat: {
     send: (body: Record<string, unknown>) =>
       request<{ reply: string; deferred?: boolean; created_run?: boolean; run_id?: string }>(
@@ -334,6 +360,8 @@ export const api = {
       agent_selection?: string[];
       timeout_seconds?: number;
       ssh_config?: Record<string, unknown>;
+      attack_techniques?: string[];
+      navigator_layer?: Record<string, unknown>;
     }) => request<HuntResponse>("/api/hunts", { method: "POST", body: JSON.stringify(body) }),
     start: (id: string) => request<HuntResponse>(`/api/hunts/${id}/start`, { method: "POST" }),
     stop: (id: string) => request<HuntResponse>(`/api/hunts/${id}/stop`, { method: "POST" }),

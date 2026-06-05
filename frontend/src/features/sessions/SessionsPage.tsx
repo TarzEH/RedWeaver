@@ -15,6 +15,7 @@ import { PageHeader } from "../../components/layout/PageHeader";
 import { useConfirm } from "../../components/ui/feedback";
 import { api } from "../../services/api";
 import type { WorkspaceResponse, SessionResponse, TargetResponse, HuntResponse } from "../../services/api";
+import { AttackPlanModal } from "./AttackPlanModal";
 
 /* ── Target type config ── */
 
@@ -180,6 +181,7 @@ function SessionDetail({
   const [loading, setLoading] = useState(true);
   const [showCreateTarget, setShowCreateTarget] = useState(false);
   const [launching, setLaunching] = useState(false);
+  const [showAttackPlan, setShowAttackPlan] = useState(false);
 
   const fetchTargets = () => {
     api.targets.list(session.id).then(setTargets).catch(() => setTargets([]));
@@ -208,7 +210,7 @@ function SessionDetail({
 
   const navigate = useNavigate();
 
-  const launchHunt = async () => {
+  const launchHunt = async (attackTechniques: string[] = []) => {
     if (targets.length === 0) return;
     setLaunching(true);
     try {
@@ -216,6 +218,7 @@ function SessionDetail({
         session_id: session.id,
         target_ids: targets.map((t) => t.id),
         objective: "comprehensive",
+        ...(attackTechniques.length ? { attack_techniques: attackTechniques } : {}),
       });
       // Start the hunt — this creates a Run and triggers execution
       const started = await api.hunts.start(hunt.id) as HuntResponse & { run_id?: string };
@@ -226,7 +229,7 @@ function SessionDetail({
         navigate(`/hunt/${started.run_id}`);
       }
     } catch { /* ignore */ }
-    finally { setLaunching(false); }
+    finally { setLaunching(false); setShowAttackPlan(false); }
   };
 
   const deleteHunt = async (id: string) => {
@@ -241,6 +244,14 @@ function SessionDetail({
 
   return (
     <div className="animate-fade-in">
+      {showAttackPlan && (
+        <AttackPlanModal
+          target={targets[0]?.address || session.name}
+          launching={launching}
+          onClose={() => setShowAttackPlan(false)}
+          onLaunch={(techniques) => launchHunt(techniques)}
+        />
+      )}
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <Button variant="ghost" size="sm" icon={<ArrowLeft size={14} />} onClick={onBack}>
@@ -270,9 +281,18 @@ function SessionDetail({
           icon={<Crosshair size={14} />}
           loading={launching}
           disabled={targets.length === 0}
-          onClick={launchHunt}
+          onClick={() => launchHunt()}
         >
           Launch Hunt
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<Target size={14} />}
+          disabled={targets.length === 0}
+          onClick={() => setShowAttackPlan(true)}
+        >
+          Plan with ATT&CK
         </Button>
         <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={fetchAll}>
           Refresh
@@ -367,7 +387,7 @@ function SessionDetail({
                 compact
                 action={
                   targets.length > 0 ? (
-                    <Button size="sm" icon={<Crosshair size={13} />} loading={launching} onClick={launchHunt}>
+                    <Button size="sm" icon={<Crosshair size={13} />} loading={launching} onClick={() => launchHunt()}>
                       Launch Hunt
                     </Button>
                   ) : undefined
