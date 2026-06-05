@@ -12,6 +12,7 @@ from typing import Any
 
 from redweaver_engine.tools import instrumentation as instr
 from redweaver_engine.tools.base import ToolCategory
+from redweaver_engine.tools.scope import check_target
 
 
 class ScreenshotTool:
@@ -41,6 +42,11 @@ class ScreenshotTool:
         url = (target or "").strip()
         if not url.startswith(("http://", "https://")):
             return {"error": "screenshot target must be an http(s) URL", "available": True}
+
+        # SSRF guard (Playwright will fetch anything): block metadata/link-local/loopback.
+        allowed, reason = check_target(url)
+        if not allowed:
+            return {"error": f"screenshot target blocked by scope guard: {reason}", "available": True}
 
         run_id, agent = instr.get_run_context()
         base = self._base_dir()

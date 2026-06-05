@@ -29,4 +29,11 @@ def derive_confidence(data: dict) -> float:
     if (data.get("evidence") or "").strip():
         score += 0.1
 
+    epss = data.get("epss_score")
+    if isinstance(epss, (int, float)):
+        if epss >= 0.5:
+            score += 0.1   # high real-world exploitation probability
+        elif epss >= 0.1:
+            score += 0.05
+
     return max(0.0, min(1.0, round(score, 3)))

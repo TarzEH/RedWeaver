@@ -1,13 +1,20 @@
 """Report endpoints — assemble VulnerabilityReport from a run's findings."""
+import csv
+import io
+import json
 from collections import Counter
 
-from django.shortcuts import get_object_or_404
+from django.http import HttpResponse
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from apps.common.access import run_scope_q, scoped_get_or_404
 from apps.findings.serializers import FindingSerializer
 from apps.hunts.models import Run
+
+_SEV_TO_SARIF = {"critical": "error", "high": "error", "medium": "warning",
+                 "low": "note", "info": "note"}
 
 _SEV_ORDER = ["critical", "high", "medium", "low", "info"]
 
@@ -109,11 +116,154 @@ def build_report(run: Run) -> dict:
                 key=lambda f: _SEV_ORDER.index(f.severity) if f.severity in _SEV_ORDER else 99,
             )[:10]
         ],
+        "compliance": _compliance(findings),
+        "branding": _branding(run),
+        "cost": {
+            "prompt_tokens": run.prompt_tokens,
+            "completion_tokens": run.completion_tokens,
+            "total_tokens": run.total_tokens,
+            "usd": float(run.cost_usd or 0),
+        },
+    }
+
+
+# OWASP Top 10 (2021) keyword map for compliance reporting.
+_OWASP = [
+    (("sql injection", "command injection", "xss", "ssrf", "lfi", "rfi", "traversal", "injection"),
+     "A03:2021 Injection"),
+    (("auth", "default cred", "brute", "password", "session"), "A07:2021 Identification & Auth Failures"),
+    (("misconfig", "default", "directory listing", "exposed", "open port", "header"),
+     "A05:2021 Security Misconfiguration"),
+    (("outdated", "version", "cve-", "vulnerable component", "end of life"),
+     "A06:2021 Vulnerable & Outdated Components"),
+    (("access", "idor", "authorization", "privilege"), "A01:2021 Broken Access Control"),
+    (("crypto", "tls", "ssl", "cleartext", "weak cipher"), "A02:2021 Cryptographic Failures"),
+]
+
+
+def _compliance(findings) -> dict:
+    from apps.findings.attack_map import techniques_for
+
+    owasp: dict = {}
+    mitre: dict = {}
+    for f in findings:
+        text = f"{f.title} {f.description}".lower()
+        for keys, cat in _OWASP:
+            if any(k in text for k in keys):
+                owasp[cat] = owasp.get(cat, 0) + 1
+                break
+        for t in techniques_for(f):
+            mitre[f"{t['id']} {t['name']}"] = mitre.get(f"{t['id']} {t['name']}", 0) + 1
+    return {
+        "owasp_top_10": [{"category": k, "count": v} for k, v in sorted(owasp.items())],
+        "mitre_attack": [{"technique": k, "count": v}
+                         for k, v in sorted(mitre.items(), key=lambda x: -x[1])],
+    }
+
+
+def _branding(run) -> dict:
+    ws = run.workspace if run.workspace_id else None
+    return {
+        "name": (ws.brand_name if ws and ws.brand_name else "RedWeaver"),
+        "color": (ws.brand_color if ws and ws.brand_color else "#3b82f6"),
+        "logo_url": (ws.brand_logo_url if ws else "") or "",
     }
 
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def run_report(request, run_id):
-    run = get_object_or_404(Run, id=run_id)
+    run = scoped_get_or_404(Run, request.user, run_scope_q, id=run_id)
     return Response(build_report(run))
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def run_report_export(request, run_id):
+    """Export a run's report as ?fmt=json|csv|sarif (SARIF unlocks CI/CD).
+
+    Note: the param is ``fmt`` (not ``format``) because DRF reserves ``format``
+    for content negotiation and 404s on unknown renderer names.
+    """
+    run = scoped_get_or_404(Run, request.user, run_scope_q, id=run_id)
+    fmt = (request.query_params.get("fmt") or "json").lower()
+    findings = FindingSerializer(
+        run.findings.all().order_by("severity"), many=True
+    ).data
+    base = f"redweaver-{str(run.id)[:8]}"
+
+    if fmt == "json":
+        resp = HttpResponse(
+            json.dumps(build_report(run), indent=2, default=str),
+            content_type="application/json",
+        )
+        resp["Content-Disposition"] = f'attachment; filename="{base}.json"'
+        return resp
+
+    if fmt == "html":
+        try:
+            from redweaver_engine.reports import generate_report_data, render_html_report
+            data = generate_report_data(
+                run_id=str(run.id), target=run.target or "", scope=run.scope or "",
+                objective=run.objective or "comprehensive", findings=findings,
+                report_markdown=run.report_markdown or "",
+            )
+            html = render_html_report(data)
+        except Exception as exc:  # noqa: BLE001
+            return Response({"error": f"html render failed: {exc}"}, status=500)
+        resp = HttpResponse(html, content_type="text/html")
+        resp["Content-Disposition"] = f'attachment; filename="{base}.html"'
+        return resp
+
+    if fmt == "csv":
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["severity", "title", "affected_url", "cvss_score", "cve_ids",
+                    "status", "confidence", "description", "remediation"])
+        for f in findings:
+            w.writerow([
+                f.get("severity"), f.get("title"), f.get("affected_url"),
+                f.get("cvss_score"), ",".join(f.get("cve_ids") or []),
+                f.get("status"), f.get("confidence"),
+                (f.get("description") or "").replace("\n", " "),
+                (f.get("remediation") or "").replace("\n", " "),
+            ])
+        resp = HttpResponse(buf.getvalue(), content_type="text/csv")
+        resp["Content-Disposition"] = f'attachment; filename="{base}.csv"'
+        return resp
+
+    if fmt == "sarif":
+        results = []
+        for f in findings:
+            loc = f.get("affected_url") or run.target
+            results.append({
+                "ruleId": (f.get("cve_ids") or [f.get("title")])[0] or "finding",
+                "level": _SEV_TO_SARIF.get((f.get("severity") or "info").lower(), "note"),
+                "message": {"text": f.get("title") or "Finding"},
+                "locations": (
+                    [{"physicalLocation": {"artifactLocation": {"uri": loc}}}] if loc else []
+                ),
+                "properties": {
+                    "cvss": f.get("cvss_score"),
+                    "confidence": f.get("confidence"),
+                    "agent": f.get("agent_source"),
+                    "severity": f.get("severity"),
+                },
+            })
+        sarif = {
+            "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+            "version": "2.1.0",
+            "runs": [{
+                "tool": {"driver": {
+                    "name": "RedWeaver",
+                    "informationUri": "https://github.com/TarzEH/RedWeaver",
+                    "rules": [],
+                }},
+                "results": results,
+            }],
+        }
+        resp = HttpResponse(json.dumps(sarif, indent=2), content_type="application/sarif+json")
+        resp["Content-Disposition"] = f'attachment; filename="{base}.sarif"'
+        return resp
+
+    return Response({"error": f"unsupported format: {fmt}"}, status=400)

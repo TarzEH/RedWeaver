@@ -15,6 +15,14 @@ interface FindingsPanelProps {
 const ALL_SEVERITIES: Severity[] = ["critical", "high", "medium", "low", "info"];
 const SEV_PRIORITY: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
 
+// SSVC decision colors (Act = remediate now ... Track = no action now).
+const SSVC_CLS: Record<string, string> = {
+  act: "text-rw-danger border-rw-danger/40",
+  attend: "text-orange-400 border-orange-500/40",
+  "track*": "text-yellow-400 border-yellow-500/40",
+  track: "text-rw-dim border-rw-border",
+};
+
 export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
   const [apiFindings, setApiFindings] = useState<Finding[]>([]);
   const [filter, setFilter] = useState<Severity | "all">("all");
@@ -79,7 +87,16 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
             {sorted.slice(0, 20).map((f) => (
               <div key={f.id} className="flex items-center gap-2 py-1 text-xs">
                 <SeverityBadge severity={f.severity} />
-                <span className="text-rw-text truncate">{f.title}</span>
+                <span className="text-rw-text truncate flex-1">{f.title}</span>
+                {f.cisa_kev && <span className="text-[9px] font-semibold text-rw-danger shrink-0" title="CISA KEV">KEV</span>}
+                {f.risk_decision && (
+                  <span
+                    title={`Risk ${f.risk_score} · SSVC ${f.risk_decision}`}
+                    className={`shrink-0 rounded border px-1 py-0.5 text-[9px] font-medium uppercase ${SSVC_CLS[f.risk_decision] || "text-rw-dim border-rw-border"}`}
+                  >
+                    {f.risk_decision}
+                  </span>
+                )}
               </div>
             ))}
             {sorted.length > 20 && <p className="text-[10px] text-rw-dim">+{sorted.length - 20} more</p>}
@@ -150,6 +167,17 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
                   {isExpanded ? <ChevronDown size={14} className="text-rw-dim shrink-0" /> : <ChevronRight size={14} className="text-rw-dim shrink-0" />}
                   <SeverityBadge severity={f.severity} />
                   <span className="text-sm text-rw-text truncate flex-1">{f.title}</span>
+                  {f.cisa_kev && (
+                    <span className="text-[10px] font-semibold text-rw-danger shrink-0" title="CISA Known Exploited Vulnerability">KEV</span>
+                  )}
+                  {f.risk_decision && (
+                    <span
+                      title={`Risk ${f.risk_score} · SSVC ${f.risk_decision}`}
+                      className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium uppercase ${SSVC_CLS[f.risk_decision] || "text-rw-dim border-rw-border"}`}
+                    >
+                      {f.risk_decision} {f.risk_score}
+                    </span>
+                  )}
                   <span className="text-[10px] text-rw-dim shrink-0">{f.agent_source}</span>
                   {f.cvss_score != null && <span className="text-[10px] font-mono text-rw-muted shrink-0">CVSS {f.cvss_score}</span>}
                 </button>

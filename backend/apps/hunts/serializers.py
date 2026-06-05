@@ -3,7 +3,7 @@ from rest_framework import serializers
 
 from apps.findings.serializers import FindingSerializer
 
-from .models import Run, Session, Target
+from .models import NotificationChannel, Run, Schedule, Session, Target
 
 
 def _sid(value) -> str | None:
@@ -154,6 +154,21 @@ def _graph_state(run: Run) -> dict:
     return base
 
 
+class NotificationChannelSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = NotificationChannel
+        fields = ("id", "name", "kind", "url", "events", "enabled", "workspace", "created_at")
+        read_only_fields = ("id", "created_at")
+
+
+class ScheduleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Schedule
+        fields = ("id", "name", "target", "scope", "objective", "session",
+                  "interval_minutes", "enabled", "last_run_at", "next_run_at", "created_at")
+        read_only_fields = ("id", "last_run_at", "next_run_at", "created_at")
+
+
 class RunSummarySerializer(serializers.ModelSerializer):
     run_id = serializers.CharField(source="id", read_only=True)
     hunt_id = serializers.CharField(source="id", read_only=True)
@@ -187,6 +202,8 @@ class RunDetailSerializer(RunSummarySerializer):
     class Meta(RunSummarySerializer.Meta):
         fields = RunSummarySerializer.Meta.fields + (
             "messages", "graph_state", "scope", "objective",
+            "prompt_tokens", "completion_tokens", "total_tokens", "cost_usd",
+            "error_message",
         )
 
     def get_graph_state(self, obj):

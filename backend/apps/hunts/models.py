@@ -176,9 +176,16 @@ class Run(TimeStampedUUIDModel):
         default=RunStatus.QUEUED,
         db_index=True,
     )
+    celery_task_id = models.CharField(max_length=64, blank=True, default="")
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(blank=True, default="")
+
+    # LLM cost accounting (captured from CrewAI token usage after kickoff)
+    prompt_tokens = models.IntegerField(default=0)
+    completion_tokens = models.IntegerField(default=0)
+    total_tokens = models.IntegerField(default=0)
+    cost_usd = models.DecimalField(max_digits=10, decimal_places=4, default=0)
 
     # Artifacts (report kept for the report API; messages = chat transcript)
     report_markdown = models.TextField(blank=True, default="")
@@ -195,6 +202,62 @@ class Run(TimeStampedUUIDModel):
             models.Index(fields=["workspace", "-created_at"]),
             models.Index(fields=["status"]),
         ]
+
+
+class NotificationChannel(TimeStampedUUIDModel):
+    """Outbound notification target (generic webhook / Slack-compatible) fired
+    on run completion or critical findings."""
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="notification_channels",
+    )
+    workspace = models.ForeignKey(
+        "workspaces.Workspace", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="notification_channels",
+    )
+    name = models.CharField(max_length=128)
+    kind = models.CharField(
+        max_length=16,
+        choices=[("webhook", "Webhook"), ("slack", "Slack")],
+        default="webhook",
+    )
+    url = models.URLField(max_length=1024)
+    events = models.JSONField(default=list, blank=True)  # [] = all; else subset
+    enabled = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.name} ({self.kind})"
+
+
+class Schedule(TimeStampedUUIDModel):
+    """A recurring scan: re-runs a target every interval (continuous monitoring)."""
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="schedules",
+    )
+    session = models.ForeignKey(
+        "hunts.Session", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="schedules",
+    )
+    name = models.CharField(max_length=128)
+    target = models.CharField(max_length=512)
+    scope = models.CharField(max_length=512, blank=True, default="")
+    objective = models.CharField(max_length=128, default="comprehensive")
+    interval_minutes = models.IntegerField(default=1440)  # daily
+    enabled = models.BooleanField(default=True)
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    next_run_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.name} -> {self.target} (every {self.interval_minutes}m)"
 
     def __str__(self) -> str:
         return f"Run<{self.id}> {self.target} [{self.status}]"

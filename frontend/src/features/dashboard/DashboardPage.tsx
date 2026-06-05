@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Shield, Target, Activity, AlertTriangle, Plus, ExternalLink } from "lucide-react";
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { formatRelativeDate } from "../../utils/formatDate";
 import { severityHex, SEVERITY_ORDER } from "../../config/theme";
 import { Card } from "../../components/ui/Card";
@@ -59,6 +60,11 @@ export function DashboardPage() {
     [allFindings],
   );
 
+  const donutData = useMemo(
+    () => SEVERITY_ORDER.map((s) => ({ name: s, value: sevCounts[s] || 0 })).filter((d) => d.value > 0),
+    [sevCounts],
+  );
+
   const stats = [
     { label: "Total Hunts", value: runs.length, icon: Target, color: "text-rw-accent" },
     { label: "Running", value: running, icon: Activity, color: "text-blue-400" },
@@ -98,7 +104,43 @@ export function DashboardPage() {
           <h2 className="text-sm font-medium text-rw-muted uppercase tracking-wider mb-3">
             Vulnerability Overview
           </h2>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <Card>
+              <span className="mb-2 block text-sm font-medium text-rw-text">Severity Distribution</span>
+              <div className="relative">
+                <ResponsiveContainer width="100%" height={180}>
+                  <PieChart>
+                    <Pie
+                      data={donutData}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={52}
+                      outerRadius={78}
+                      paddingAngle={2}
+                      stroke="none"
+                    >
+                      {donutData.map((d) => (
+                        <Cell key={d.name} fill={severityHex(d.name)} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        background: "#111827",
+                        border: "1px solid #334155",
+                        borderRadius: 8,
+                        fontSize: 12,
+                        textTransform: "capitalize",
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-2xl font-bold text-rw-text">{allFindings.length}</span>
+                  <span className="text-[10px] uppercase tracking-wide text-rw-dim">findings</span>
+                </div>
+              </div>
+            </Card>
+
             <Card>
               <div className="flex items-center gap-3 mb-3">
                 <span className="text-sm font-medium text-rw-text">Severity Breakdown</span>
@@ -167,8 +209,17 @@ export function DashboardPage() {
               {runs.map((run) => (
                 <tr
                   key={run.run_id}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Open hunt for ${run.target}`}
                   onClick={() => navigate(`/hunt/${run.run_id}`)}
-                  className="border-b border-rw-border-subtle hover:bg-rw-surface cursor-pointer transition-colors"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      navigate(`/hunt/${run.run_id}`);
+                    }
+                  }}
+                  className="border-b border-rw-border-subtle hover:bg-rw-surface cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-rw-accent focus-visible:ring-inset"
                 >
                   <td className="py-2.5 px-4">
                     <StatusBadge status={run.status} />

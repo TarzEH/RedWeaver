@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, PrivateAttr
 
 from redweaver_engine.tools import instrumentation as instr
 from redweaver_engine.tools.base import BugHuntTool
+from redweaver_engine.tools.scope import check_target
 
 
 class _ToolInput(BaseModel):
@@ -81,6 +82,10 @@ class CrewAIToolAdapter(BaseTool):
         if not agent:
             agent = self._rw_agent
         instr.pop_cli_raw()  # drain any stale CLI capture before invoking
+        # SSRF guard at the single tool chokepoint: blocks only targets that
+        # resolve to metadata/link-local/loopback (private is opt-in), so search
+        # queries and CVE ids pass through untouched.
+        allowed, block_reason = check_target(target)
         instr.publish_event(
             run_id, "tool_call",
             {"agent": agent, "tool": self.name, "input": target}, agent=agent,
@@ -88,11 +93,18 @@ class CrewAIToolAdapter(BaseTool):
 
         start = time.monotonic()
         status, error = "success", ""
-        try:
-            result = self._bug_hunt_tool.run(target, scope, parsed_options)
-        except Exception as e:
-            result = {"error": str(e), "tool": self.name, "status": "failed"}
-            status, error = "error", str(e)
+        if not allowed:
+            result = {
+                "error": f"target blocked by scope guard: {block_reason}",
+                "tool": self.name, "status": "blocked",
+            }
+            status, error = "blocked", block_reason
+        else:
+            try:
+                result = self._bug_hunt_tool.run(target, scope, parsed_options)
+            except Exception as e:
+                result = {"error": str(e), "tool": self.name, "status": "failed"}
+                status, error = "error", str(e)
 
         duration_ms = int((time.monotonic() - start) * 1000)
 

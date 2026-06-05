@@ -116,7 +116,7 @@ def _kb_query(q: str, top_k: int = 3) -> list:
     # Fast/accurate retrieval straight from the Postgres pgvector RAG (no HTTP).
     try:
         from apps.knowledge.search import kb_search
-        return kb_search(q, top_k=top_k, min_score=0.05)
+        return kb_search(q, top_k=top_k, min_score=0.18)
     except Exception:
         return []
 
@@ -168,7 +168,40 @@ def gather_research(registry, target: str, findings: list) -> str:
                           ["linux privilege escalation methodology",
                            "post exploitation credential harvesting"]))
 
-    blocks: list = ["## Shared methodology (from KB)"]
+    # ---- ENGAGEMENT INTEL: computed real-data prioritization (SSVC + EPSS + KEV
+    # + exploit availability + MITRE ATT&CK) so the report prioritizes by real
+    # risk, not CVSS alone (~2% of CVEs are exploited in the wild). ----
+    try:
+        from apps.findings.risk import risk_for_finding
+        from apps.findings.attack_map import techniques_for
+
+        scored = []
+        for f in findings:
+            r = risk_for_finding(f)
+            scored.append((r["risk_score"], r["decision"], r["weaponized"], f, techniques_for(f)))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        dcount: dict = {}
+        for s in scored:
+            dcount[s[1]] = dcount.get(s[1], 0) + 1
+        intel = [
+            "## ENGAGEMENT INTEL (computed — PRIORITIZE BY THIS, not CVSS alone)",
+            f"Findings: {len(findings)} · SSVC decisions: "
+            + ", ".join(f"{k}={v}" for k, v in dcount.items()),
+            "| Finding | Sev | Risk | SSVC | EPSS | KEV | Exploit | ATT&CK |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
+        for score, dec, weap, f, techs in scored[:15]:
+            epss = f.get("epss_score")
+            epss_s = f"{epss * 100:.1f}%" if isinstance(epss, (int, float)) else "—"
+            tt = ", ".join(t["id"] for t in techs[:2])
+            intel.append(
+                f"| {(f.get('title') or '')[:48]} | {(f.get('severity') or 'info')} | "
+                f"{score} | {dec} | {epss_s} | {'yes' if f.get('cisa_kev') else 'no'} | "
+                f"{'weaponized' if weap else 'none'} | {tt} |"
+            )
+        blocks: list = intel + ["", "## Shared methodology (from KB)"]
+    except Exception:
+        blocks = ["## Shared methodology (from KB)"]
     seen = set()
     for _q, hits in gen:
         for r in hits[:1]:

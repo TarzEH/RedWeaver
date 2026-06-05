@@ -20,7 +20,11 @@ class ObservabilityConfig(AppConfig):
             # KB retrieval via the Postgres pgvector RAG (agents' knowledge_search).
             try:
                 from apps.knowledge.search import kb_search
-                instr.set_kb_searcher(lambda q, k=5: kb_search(q, top_k=k))
+                instr.set_kb_searcher(
+                    lambda q, k=5, min_score=0.0, category=None: kb_search(
+                        q, top_k=k, min_score=min_score, category=category
+                    )
+                )
             except Exception:
                 pass
         except Exception:  # engine optional during some mgmt commands

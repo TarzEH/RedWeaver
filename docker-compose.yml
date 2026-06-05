@@ -137,6 +137,18 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  beat:
+    build: ./backend
+    command: ["/app/entrypoint.sh", "beat"]
+    environment: *backend_env
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
   frontend:
     build:
       context: ./frontend

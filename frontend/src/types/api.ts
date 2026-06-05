@@ -152,6 +152,13 @@ export interface Finding {
   cvss_score?: number | null;
   cve_ids: string[];
   timestamp: string;
+  status?: string;
+  confidence?: number | null;
+  exploitability?: string;
+  cisa_kev?: boolean;
+  epss_score?: number | null;
+  risk_score?: number | null;
+  risk_decision?: string;
 }
 
 export interface ServiceInfo {

@@ -27,5 +27,10 @@ class Workspace(TimeStampedUUIDModel):
         related_name="workspaces",
     )
 
+    # Report branding (shown on exported reports)
+    brand_name = models.CharField(max_length=128, blank=True, default="")
+    brand_color = models.CharField(max_length=16, blank=True, default="")
+    brand_logo_url = models.URLField(max_length=1024, blank=True, default="")
+
     def __str__(self) -> str:
         return self.name

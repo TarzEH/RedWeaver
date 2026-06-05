@@ -159,6 +159,19 @@ REST_FRAMEWORK = {
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ),
+    # Rate limiting (brute-force / abuse protection). "auth" is a tight scope
+    # applied to login/register; "llm" guards the provider-proxy endpoints.
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.ScopedRateThrottle",
+    ),
+    "DEFAULT_THROTTLE_RATES": {
+        "user": env("THROTTLE_USER", default="2000/hour"),
+        "anon": env("THROTTLE_ANON", default="120/hour"),
+        "auth": env("THROTTLE_AUTH", default="20/min"),
+        "llm": env("THROTTLE_LLM", default="60/min"),
+    },
 }
 
 from datetime import timedelta  # noqa: E402
@@ -237,3 +250,23 @@ LOGGING = {
     "handlers": {"console": {"class": "logging.StreamHandler"}},
     "root": {"handlers": ["console"], "level": env("LOG_LEVEL", default="INFO")},
 }
+
+# ---------------------------------------------------------------------------
+# Error monitoring (Sentry) — only initialized when SENTRY_DSN is configured.
+# ---------------------------------------------------------------------------
+SENTRY_DSN = env("SENTRY_DSN", default="")
+if SENTRY_DSN:
+    try:
+        import sentry_sdk
+        from sentry_sdk.integrations.celery import CeleryIntegration
+        from sentry_sdk.integrations.django import DjangoIntegration
+
+        sentry_sdk.init(
+            dsn=SENTRY_DSN,
+            integrations=[DjangoIntegration(), CeleryIntegration()],
+            traces_sample_rate=env.float("SENTRY_TRACES_SAMPLE_RATE", default=0.0),
+            send_default_pii=False,
+            environment=env("DJANGO_ENV", default="dev"),
+        )
+    except Exception:  # never let monitoring setup break boot
+        pass

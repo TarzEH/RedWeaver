@@ -86,6 +86,11 @@ export function AgentGraph({ graphState, steps, findings, isLive }: Props) {
   const pos = Object.fromEntries(nodes.map((n) => [n.id, n]));
   const height = 330;
 
+  // Progress: how many of the visible nodes have finished vs total.
+  const doneCount = nodes.filter((n) => statusOf(n.id) === "done").length;
+  const totalCount = nodes.length;
+  const progressPct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+
   const edgeColor = (from: string): string => {
     const s = statusOf(from);
     return s === "done" ? COLORS.done : s === "active" ? COLORS.active : "#2a3548";
@@ -102,6 +107,21 @@ export function AgentGraph({ graphState, steps, findings, isLive }: Props) {
 
   return (
     <div className="p-2">
+      {/* progress header */}
+      <div className="px-1 mb-1.5">
+        <div className="flex items-center justify-between text-[10px] mb-1">
+          <span className="font-bold uppercase tracking-widest text-rw-dim/60">Topology</span>
+          <span className="font-mono text-rw-muted">
+            {doneCount}/{totalCount} agents
+          </span>
+        </div>
+        <div className="h-1 w-full rounded-full bg-rw-surface overflow-hidden">
+          <div
+            className="h-full rounded-full bg-rw-accent transition-all duration-500"
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+      </div>
       <svg viewBox={`0 0 360 ${height}`} className="w-full" style={{ maxHeight: 360 }}>
         <defs>
           <marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
@@ -114,17 +134,40 @@ export function AgentGraph({ graphState, steps, findings, isLive }: Props) {
           const s = pos[a], t = pos[b];
           const x1 = s.x, y1 = s.y + NH / 2, x2 = t.x, y2 = t.y - NH / 2;
           const my = (y1 + y2) / 2;
+          const d = `M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`;
           const active = statusOf(a) !== "idle";
+          // "Data flowing": handoff is in motion when the source has finished
+          // or the target is currently running (e.g. recon -> scanners).
+          const flowing = isLive && (statusOf(a) === "done" || statusOf(b) === "active");
           return (
-            <path
-              key={`${a}-${b}`}
-              d={`M${x1},${y1} C${x1},${my} ${x2},${my} ${x2},${y2}`}
-              fill="none"
-              stroke={edgeColor(a)}
-              strokeWidth={active ? 1.6 : 1}
-              markerEnd="url(#arrow)"
-              opacity={active ? 0.9 : 0.45}
-            />
+            <g key={`${a}-${b}`}>
+              <path
+                d={d}
+                fill="none"
+                stroke={edgeColor(a)}
+                strokeWidth={active ? 1.6 : 1}
+                markerEnd="url(#arrow)"
+                opacity={active ? 0.9 : 0.45}
+              />
+              {flowing && (
+                <path
+                  d={d}
+                  fill="none"
+                  stroke={COLORS.active}
+                  strokeWidth={1.8}
+                  strokeLinecap="round"
+                  strokeDasharray="4 10"
+                  opacity={0.95}
+                >
+                  <animate
+                    attributeName="stroke-dashoffset"
+                    values="28;0"
+                    dur="0.9s"
+                    repeatCount="indefinite"
+                  />
+                </path>
+              )}
+            </g>
           );
         })}
 
@@ -137,7 +180,9 @@ export function AgentGraph({ graphState, steps, findings, isLive }: Props) {
           const stroke = st === "done" ? COLORS.done : st === "active" ? cfg.color : "#2f3b4f";
           const fill = st === "idle" ? "#0e1622" : `${cfg.color}14`;
           return (
-            <g key={n.id} transform={`translate(${n.x - NW / 2},${n.y - NH / 2})`}>
+            // Key by status so the node remounts on transition, letting the
+            // one-shot "done" flash fire exactly once when it completes.
+            <g key={`${n.id}-${st}`} transform={`translate(${n.x - NW / 2},${n.y - NH / 2})`}>
               <rect
                 width={NW} height={NH} rx={8}
                 fill={st === "done" ? "#10b98114" : fill}
@@ -148,6 +193,23 @@ export function AgentGraph({ graphState, steps, findings, isLive }: Props) {
                   <animate attributeName="opacity" values="1;0.45;1" dur="1.4s" repeatCount="indefinite" />
                 )}
               </rect>
+              {/* Brief completion flash: a bright ring that fades out once. */}
+              {st === "done" && isLive && (
+                <rect
+                  width={NW} height={NH} rx={8}
+                  fill={COLORS.done}
+                  stroke={COLORS.done}
+                  strokeWidth={2}
+                >
+                  <animate
+                    attributeName="opacity"
+                    values="0.5;0"
+                    dur="0.7s"
+                    repeatCount="1"
+                    fill="freeze"
+                  />
+                </rect>
+              )}
               <circle cx={13} cy={NH / 2} r={7} fill={cfg.color} opacity={st === "idle" ? 0.4 : 1} />
               <text x={13} y={NH / 2 + 3} textAnchor="middle" fontSize="8" fontWeight="700" fill="#0b0f14">
                 {cfg.abbrev}

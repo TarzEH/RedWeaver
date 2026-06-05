@@ -54,8 +54,44 @@ def record_event(run, event_type: str, data: dict, seq: int) -> None:
             _huntflow_completed(run, data)
         if event_type == "screenshot":
             _screenshot(run, data)
+        if event_type == "attack_chain":
+            _attack_chain(run, data)
+        if event_type == "false_positives":
+            _false_positives(run, data)
     except Exception:
         logger.exception("record_event failed: %s", event_type)
+
+
+def _attack_chain(run, data) -> None:
+    from apps.findings.models import AttackChain, Finding
+
+    name = (data.get("name") or "").strip()
+    if not name:
+        return
+    ch = AttackChain.objects.create(
+        run=run,
+        name=name[:256],
+        description=(data.get("description") or "")[:4000],
+        severity=(data.get("severity") or "high").lower(),
+        steps=data.get("steps") or [],
+    )
+    # Link findings whose title appears in a chain step (best-effort).
+    titles = [s.lower() for s in (data.get("steps") or []) if isinstance(s, str)]
+    if titles:
+        for f in Finding.objects.filter(run=run):
+            if any(f.title.lower() in step or step in f.title.lower() for step in titles):
+                ch.findings.add(f)
+
+
+def _false_positives(run, data) -> None:
+    from apps.findings.models import Finding, FindingStatus
+
+    for title in data.get("titles") or []:
+        if not isinstance(title, str) or not title.strip():
+            continue
+        Finding.objects.filter(run=run, title__iexact=title.strip()).update(
+            status=FindingStatus.FALSE_POSITIVE
+        )
 
 
 def _agent_step(run, event_type, data, seq) -> None:
@@ -112,6 +148,15 @@ def _finding(run, data) -> None:
     title = data.get("title") or "Untitled"
     affected = data.get("affected_url") or data.get("url") or ""
     severity = (data.get("severity") or "info").lower()
+    # Best-effort EPSS enrichment (feeds confidence + real-world prioritization).
+    if data.get("cve_ids") and data.get("epss_score") is None:
+        try:
+            from apps.findings.enrichment import max_epss
+            epss = max_epss(data.get("cve_ids") or [])
+            if epss is not None:
+                data["epss_score"] = epss
+        except Exception:
+            pass
     f = Finding(
         run=run,
         session=run.session,
@@ -127,6 +172,7 @@ def _finding(run, data) -> None:
         cvss_score=data.get("cvss_score"),
         cve_ids=data.get("cve_ids") or [],
         cisa_kev=bool(data.get("cisa_kev")),
+        epss_score=data.get("epss_score"),
         exploitability=(data.get("exploitability") or "unknown").lower(),
         confidence=derive_confidence(data),
     )
@@ -186,14 +232,21 @@ def tool_recorder(payload: dict):
     if not run_id:
         return None
     try:
-        seq = (
-            ToolExecution.objects.filter(run_id=run_id)
-            .aggregate(m=Max("sequence"))
-            .get("m")
-            or 0
-        ) + 1
-        te = ToolExecution.objects.create(
-            run_id=run_id,
+        from django.db import transaction
+
+        from apps.hunts.models import Run
+        # Allocate the per-run sequence under a row lock so concurrent (async)
+        # tool calls can't collide on the same ToolExecution.sequence.
+        with transaction.atomic():
+            Run.objects.select_for_update().filter(id=run_id).first()
+            seq = (
+                ToolExecution.objects.filter(run_id=run_id)
+                .aggregate(m=Max("sequence"))
+                .get("m")
+                or 0
+            ) + 1
+            te = ToolExecution.objects.create(
+                run_id=run_id,
             agent_name=payload.get("agent") or "",
             tool_name=payload.get("tool_name") or "tool",
             sequence=seq,
