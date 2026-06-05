@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { FileText, Download, Printer } from "lucide-react";
+import { Link } from "react-router-dom";
+import { FileText, Download, Printer, LayoutDashboard, GitCompare } from "lucide-react";
 import { MarkdownRenderer } from "../../components/domain/MarkdownRenderer";
 import { Spinner } from "../../components/ui/Spinner";
 import { buildReportMarkdown } from "../report/buildReportMarkdown";
@@ -134,6 +135,12 @@ export function HuntReportBlock({ runId, onContentLoaded }: HuntReportBlockProps
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
+          <Link to={`/hunt/${runId}/report`} className={`${exportBtn} inline-flex items-center gap-1 !text-rw-accent-hover !border-rw-accent/30`} title="Open the premium visual report">
+            <LayoutDashboard size={12} /> Visual
+          </Link>
+          <Link to={`/hunt/${runId}/compare`} className={`${exportBtn} inline-flex items-center gap-1`} title="Compare with another run">
+            <GitCompare size={12} /> Diff
+          </Link>
           <button type="button" onClick={downloadMd} className={`${exportBtn} inline-flex items-center gap-1`} title="Download Markdown">
             <Download size={12} /> MD
           </button>

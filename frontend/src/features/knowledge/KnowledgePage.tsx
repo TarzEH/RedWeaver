@@ -1,134 +1,177 @@
 import { useEffect, useState } from "react";
-import { BookOpen, Search } from "lucide-react";
-import { Card } from "../../components/ui/Card";
-import { Button } from "../../components/ui/Button";
-import { Input, Select } from "../../components/ui/Input";
-import { EmptyState } from "../../components/ui/EmptyState";
-import { PageHeader } from "../../components/layout/PageHeader";
+import { BookOpen, Library, AlertCircle } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
-import { api } from "../../services/api";
+import { Spinner } from "../../components/ui/Spinner";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { MarkdownRenderer } from "../../components/domain/MarkdownRenderer";
+import { api, type KbFile, type KbDocument } from "../../services/api";
+import { CategoryTree, type CategoryNode } from "./CategoryTree";
+import { SearchPanel } from "./SearchPanel";
+import { categoryLabel } from "./kbUtils";
 
-const CATEGORIES = [
-  { value: "", label: "All categories" },
-  { value: "privilege_escalation", label: "Privilege Escalation" },
-  { value: "tunneling", label: "Tunneling" },
-  { value: "flag_hunting", label: "Flag Hunting" },
-  { value: "web_attacks", label: "Web Attacks" },
-  { value: "active_directory", label: "Active Directory" },
-  { value: "reconnaissance", label: "Reconnaissance" },
-  { value: "exploitation", label: "Exploitation" },
-  { value: "password_attacks", label: "Password Attacks" },
-  { value: "reporting", label: "Reporting" },
-  { value: "c2_frameworks", label: "C2 Frameworks" },
-  { value: "av_evasion", label: "AV Evasion" },
-  { value: "cloud_security", label: "Cloud Security" },
-];
-
-type KnowledgeResult = {
-  content: string;
-  file: string;
-  category: string;
-  relevance_score: number;
-};
+type HealthState = { status: string; documents_indexed: number; files_indexed: number };
 
 export function KnowledgePage() {
-  const [query, setQuery] = useState("");
-  const [category, setCategory] = useState("");
-  const [results, setResults] = useState<KnowledgeResult[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [health, setHealth] = useState<{ status: string; documents_indexed: number; files_indexed: number } | null>(null);
+  const [categories, setCategories] = useState<CategoryNode[]>([]);
+  const [catLoading, setCatLoading] = useState(true);
+  const [health, setHealth] = useState<HealthState | null>(null);
+
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [doc, setDoc] = useState<KbDocument | null>(null);
+  const [docLoading, setDocLoading] = useState(false);
+  const [docError, setDocError] = useState(false);
 
   useEffect(() => {
     api.knowledge.health().then(setHealth).catch(() => {});
+    api.knowledge
+      .categories()
+      .then((d) => setCategories(d.categories || []))
+      .catch(() => setCategories([]))
+      .finally(() => setCatLoading(false));
   }, []);
 
-  const search = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!query.trim()) return;
-    setLoading(true);
-    try {
-      const body: { query: string; top_k: number; category?: string } = { query: query.trim(), top_k: 10 };
-      if (category) body.category = category;
-      const data = await api.knowledge.query(body);
-      setResults(data.results || []);
-    } catch {
-      setResults([]);
-    } finally {
-      setLoading(false);
+  // Load a document whenever the selected file changes.
+  useEffect(() => {
+    if (!selectedFile) {
+      setDoc(null);
+      return;
     }
+    let cancelled = false;
+    setDocLoading(true);
+    setDocError(false);
+    api.knowledge
+      .document(selectedFile)
+      .then((d) => {
+        if (!cancelled) setDoc(d);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDoc(null);
+          setDocError(true);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setDocLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedFile]);
+
+  const openFile = (file: KbFile | string) => {
+    setSelectedFile(typeof file === "string" ? file : file.file);
   };
 
+  const unavailable = health?.status === "unavailable";
+
   return (
-    <div className="flex-1 overflow-y-auto p-6 animate-fade-in">
-      <PageHeader
-        title="Knowledge Base"
-        subtitle={
-          health && health.status !== "unavailable"
-            ? `${health.documents_indexed} chunks from ${health.files_indexed} files indexed`
-            : undefined
-        }
-        actions={
-          health?.status === "unavailable" ? (
-            <Badge variant="danger">Service unavailable</Badge>
-          ) : undefined
-        }
-      />
-
-      {/* Search */}
-      <form onSubmit={search} className="flex gap-2 mb-6">
-        <Input
-          icon={<Search size={14} />}
-          placeholder="Search techniques, commands, methodologies..."
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          className="flex-1"
-        />
-        <Select
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          options={CATEGORIES}
-        />
-        <Button type="submit" loading={loading}>
-          Search
-        </Button>
-      </form>
-
-      {/* Results */}
-      {results.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-xs text-rw-dim">{results.length} results</p>
-          {results.map((r, i) => (
-            <Card key={i}>
-              <div className="flex items-center gap-2 mb-2">
-                <Badge variant="accent">{r.category}</Badge>
-                <span className="text-[10px] text-rw-dim font-mono">{r.file}</span>
-                <span className="text-[10px] text-rw-dim ml-auto">
-                  {(r.relevance_score * 100).toFixed(0)}% match
-                </span>
-              </div>
-              <pre className="text-xs text-rw-muted whitespace-pre-wrap font-mono leading-relaxed max-h-40 overflow-y-auto">
-                {r.content}
-              </pre>
-            </Card>
-          ))}
+    <div className="flex flex-1 min-h-0 flex-col overflow-hidden animate-fade-in">
+      {/* Header */}
+      <header className="flex shrink-0 items-center justify-between border-b border-rw-border px-6 py-4">
+        <div className="flex items-center gap-3">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-rw-accent/15 text-rw-accent">
+            <Library size={18} />
+          </span>
+          <div>
+            <h1 className="text-lg font-semibold text-rw-text">Knowledge Base</h1>
+            <p className="text-xs text-rw-dim">
+              {health && !unavailable
+                ? `${health.documents_indexed.toLocaleString()} chunks across ${health.files_indexed.toLocaleString()} files`
+                : "Browse, search, and ask your pentest playbooks"}
+            </p>
+          </div>
         </div>
-      )}
+        {unavailable && <Badge variant="danger">Service unavailable</Badge>}
+      </header>
 
-      {results.length === 0 && query && !loading && (
-        <EmptyState
-          icon={<BookOpen size={32} />}
-          title="No results found"
-          description="Try a different query or category."
-        />
-      )}
+      {/* 3-pane body */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* LEFT — category / file tree */}
+        <aside className="hidden w-64 shrink-0 flex-col overflow-hidden border-r border-rw-border bg-rw-elevated/40 md:flex">
+          <div className="border-b border-rw-border-subtle px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-rw-dim">Categories</p>
+          </div>
+          <div className="flex-1 overflow-y-auto px-2 py-2">
+            <CategoryTree
+              categories={categories}
+              loading={catLoading}
+              selectedFile={selectedFile}
+              onSelectFile={openFile}
+            />
+          </div>
+        </aside>
 
-      {!query && results.length === 0 && (
-        <EmptyState
-          icon={<BookOpen size={32} />}
-          title="Search the knowledge base"
-          description="Query techniques, commands, methodologies, and patterns from the ingested knowledge files."
-        />
-      )}
+        {/* CENTER — document viewer */}
+        <main className="flex flex-1 min-w-0 flex-col overflow-hidden">
+          <DocumentViewer doc={doc} loading={docLoading} error={docError} hasSelection={!!selectedFile} />
+        </main>
+
+        {/* RIGHT — search + ask */}
+        <aside className="hidden w-80 shrink-0 flex-col overflow-hidden border-l border-rw-border bg-rw-elevated/40 p-4 lg:flex xl:w-96">
+          <SearchPanel onOpenFile={(file) => openFile(file)} />
+        </aside>
+      </div>
     </div>
   );
 }
+
+function DocumentViewer({
+  doc,
+  loading,
+  error,
+  hasSelection,
+}: {
+  doc: KbDocument | null;
+  loading: boolean;
+  error: boolean;
+  hasSelection: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="flex flex-1 items-center justify-center">
+        <Spinner size="md" label="Loading document" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6">
+        <EmptyState
+          icon={<AlertCircle size={32} />}
+          title="Could not load document"
+          description="The selected knowledge file is unavailable. Try another document."
+        />
+      </div>
+    );
+  }
+
+  if (!hasSelection || !doc) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6">
+        <EmptyState
+          icon={<BookOpen size={32} />}
+          title="Select a document to read"
+          description="Pick a file from a category on the left, or use search and Ask on the right to jump straight to the relevant playbook."
+        />
+      </div>
+    );
+  }
+
+  return (
+    <article className="flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-3xl px-8 py-8">
+        <div className="mb-6 border-b border-rw-border-subtle pb-5">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <Badge variant="accent">{categoryLabel(doc.category)}</Badge>
+            <span className="font-mono text-[10px] text-rw-dim">{doc.file}</span>
+          </div>
+          <h1 className="text-2xl font-bold text-rw-text">{doc.title || doc.file}</h1>
+        </div>
+        <MarkdownRenderer content={doc.content} variant="enhanced" />
+      </div>
+    </article>
+  );
+}
+
+export default KnowledgePage;
