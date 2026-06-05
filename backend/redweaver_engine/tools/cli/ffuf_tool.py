@@ -11,6 +11,8 @@ class FfufTool(BaseCLITool):
         "Fuzz directories, files, or parameters on a target URL using ffuf. "
         "Target should include FUZZ keyword, e.g. 'https://example.com/FUZZ'. "
         "Options: wordlist='/path/to/list' (default: common.txt), "
+        "extensions='php,html,bak,old,txt,json,conf,env,zip' to append file extensions, "
+        "recursion=true with recursion_depth=N (default 1) to recurse into found dirs, "
         "mc='200,301,302' to match status codes, "
         "fc='404' to filter status codes."
     )
@@ -38,6 +40,20 @@ class FfufTool(BaseCLITool):
             "-t", str(options.get("threads", 40)),
             "-rate", str(options.get("rate", 100)),
         ]
+        # File extensions: accept "php,html" or ".php,.html"; ffuf wants leading dots.
+        extensions = options.get("extensions")
+        if extensions:
+            exts = [
+                e.strip() if e.strip().startswith(".") else "." + e.strip()
+                for e in str(extensions).split(",")
+                if e.strip()
+            ]
+            if exts:
+                cmd.extend(["-e", ",".join(exts)])
+        # Recursive content discovery into discovered directories.
+        if options.get("recursion"):
+            depth = options.get("recursion_depth", 1)
+            cmd.extend(["-recursion", "-recursion-depth", str(depth)])
         mc = options.get("mc")
         if mc:
             cmd.extend(["-mc", mc])

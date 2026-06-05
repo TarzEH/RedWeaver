@@ -1,322 +1,268 @@
 # Web Application Enumeration
 
-Techniques for discovering hidden directories, files, APIs, and application details on web servers through directory brute-forcing, header analysis, content inspection, and web fingerprinting.
+After subdomain enumeration and HTTP probing produce a list of live web hosts, web enumeration extracts the application-level attack surface: server fingerprint, HTTP behavior, hidden directories/files, APIs, parameters, JavaScript-buried endpoints, and secrets. This is the bridge between "a host responds on 443" and "here are 4,000 URLs and 30 parameters to test."
+
+This file is the **overview + HTTP/server layer**. Two companions go deeper:
+- `content-discovery.md` — directory/file brute-forcing, crawling, archive mining, JS analysis, parameter discovery.
+- `technology-fingerprinting.md` — identifying the stack (server, framework, CMS, WAF, libs).
+
+> **Hunter mindset:** the bug isn't on the homepage. It's in the forgotten `/api/v1/internal`, the `.js` that references a debug endpoint, the parameter that isn't in any form, the staging vhost. Enumeration is about *finding the surface nobody else tested.*
 
 ---
 
-## Web Server Fingerprinting with Nmap
+## Workflow at a Glance
 
-### Version Detection
-
-```bash
-sudo nmap -p80 -sV TARGET_IP
-sudo nmap -p80,443,8080,8443 -sV --script=http-enum TARGET_IP
 ```
-
-### Useful NSE Scripts
-
-| Script                | Description                              |
-|-----------------------|------------------------------------------|
-| `http-enum`           | Enumerate common directories and files   |
-| `http-title`          | Retrieve page title                      |
-| `http-headers`        | Display HTTP response headers            |
-| `http-methods`        | Show allowed HTTP methods                |
-| `http-server-header`  | Web server software identification       |
-| `http-robots.txt`     | Read robots.txt content                  |
-| `http-vuln-*`         | Vulnerability detection scripts          |
-
-### Combined Scan
-
-```bash
-sudo nmap -p80,443 -sV --script http-enum,http-headers,http-methods,http-robots.txt,http-title TARGET_IP -oN web_enum.txt
-```
-
-### Web Application Security Assessment
-
-```bash
-# WAF detection
-nmap --script http-waf-detect,http-waf-fingerprint -p 80,443 TARGET_IP
-
-# CMS detection
-nmap --script http-wordpress-enum,http-drupal-enum -p 80,443 TARGET_IP
-
-# SSL/TLS analysis
-nmap --script ssl-enum-ciphers,ssl-cert,ssl-date -p 443 TARGET_IP
-
-# Security headers
-nmap --script http-security-headers -p 80,443 TARGET_IP
-
-# Backup and sensitive file discovery
-nmap --script http-backup-finder,http-config-backup,http-git -p 80,443 TARGET_IP
+live hosts (httpx) ──▶ fingerprint stack (whatweb/httpx -td)
+        │
+        ├─▶ HTTP behavior   (headers, methods, redirects, status quirks)
+        ├─▶ passive content (robots, sitemap, security.txt, archives via gau)
+        ├─▶ active content   (ffuf/feroxbuster directory & file brute-force)
+        ├─▶ crawl            (katana → URLs, forms, JS)
+        ├─▶ JS analysis      (endpoints, secrets via linkfinder/gf/trufflehog)
+        └─▶ params           (arjun/paramspider/x8)
+                 │
+                 ▼
+        URLs + params + endpoints → vulnerability testing
 ```
 
 ---
 
-## Gobuster Directory and File Enumeration
+## Initial Triage of a Live Host
 
-### Directory Mode (`dir`)
-
-```bash
-gobuster dir -u http://TARGET -w /usr/share/wordlists/dirb/common.txt -t 5
-gobuster dir -u http://TARGET -w list.txt -x php,html,txt,asp,aspx,jsp
-```
-
-### DNS Subdomain Mode (`dns`)
+Before brute-forcing anything, read what the host *volunteers*.
 
 ```bash
-gobuster dns -d example.com -w /usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt -t 20
+# Headers, server, redirects, methods — all at once
+curl -sIL https://target.com
+curl -sI -X OPTIONS https://target.com            # allowed methods
+
+# httpx structured triage (run on the whole host list)
+httpx -l live_hosts.txt -sc -title -td -web-server -cl -location -favicon -jarm -silent
 ```
 
-### Virtual Host Mode (`vhost`)
-
-```bash
-gobuster vhost -u http://example.com -w /usr/share/seclists/Discovery/DNS/virtual-host-names.txt -t 20
-```
-
-### Fuzz Mode
-
-```bash
-# Parameter fuzzing
-gobuster fuzz -u "http://target/FUZZ.php" -w /usr/share/wordlists/dirb/common.txt
-
-# LFI fuzzing
-gobuster fuzz -u "http://target/page.php?file=FUZZ" -w payloads.txt
-```
-
-### Stealth and Evasion
-
-```bash
-# Lower threads
-gobuster dir -u http://target -w list.txt -t 2
-
-# Custom User-Agent
-gobuster dir -u http://target -w list.txt -a "Mozilla/5.0"
-
-# Blacklist status codes
-gobuster dir -u http://target -w list.txt -b 404,403
-
-# Proxy through Burp or Tor
-gobuster dir -u http://target -w list.txt --proxy socks5://127.0.0.1:9050
-
-# Add delays between requests
-gobuster dir -u http://target -w list.txt --delay 500ms
-```
-
-### Common Wordlists
-
-- `/usr/share/wordlists/dirb/common.txt`
-- `/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt`
-- `/usr/share/seclists/Discovery/`
+What to capture per host: status code, page title, content-length (dedupe identical hosts), tech stack, server header, redirect chain, favicon hash (pivot for related hosts), and CDN/WAF presence.
 
 ---
 
 ## HTTP Response Header Analysis
 
-### Retrieve Headers with curl
+Headers leak the stack, infra, and sometimes secrets.
 
 ```bash
-curl -I https://target.com
-curl -I https://target.com | grep Server
+curl -sI https://target.com
 ```
 
-### Key Headers to Analyze
-
-| Header               | Information Revealed               | Security Risk          |
-|----------------------|------------------------------------|------------------------|
-| `Server`             | Web server software and version    | CVE matching           |
-| `X-Powered-By`       | Backend language/framework         | Exploit targeting      |
-| `X-Aspnet-Version`   | ASP.NET version                    | Known vulnerabilities  |
-| `x-amz-cf-id`        | AWS CloudFront usage               | Cloud architecture map |
-| `X-Forwarded-For`    | Origin client IP                   | Internal IP disclosure |
-
----
-
-## Sitemap and robots.txt Enumeration
-
-### Retrieve robots.txt
+| Header | Reveals | Why it matters |
+|--------|---------|----------------|
+| `Server` | Web server + version | CVE matching (nginx/Apache/IIS) |
+| `X-Powered-By` | Backend (PHP/Express/ASP.NET) | Exploit targeting |
+| `X-AspNet-Version` / `X-AspNetMvc-Version` | .NET version | Known vulns |
+| `X-Generator` / `Generator` meta | CMS (Drupal/WordPress) | Targeted scanners |
+| `Set-Cookie` | Session/framework (`PHPSESSID`, `JSESSIONID`, `connect.sid`, `laravel_session`) | Stack fingerprint |
+| `Via` / `X-Cache` / `CF-Ray` / `X-Amz-Cf-Id` | CDN (Cloudflare/CloudFront/Akamai) | Edge vs origin |
+| `X-Forwarded-For` / `X-Real-IP` echoes | Proxy behavior | SSRF/IP-spoof testing |
+| Missing `CSP`/`HSTS`/`X-Frame-Options` | Weak security headers | Clickjacking/XSS posture |
+| `Access-Control-Allow-Origin: *` (or reflected) | CORS | Possible CORS misconfig |
 
 ```bash
-curl https://target.com/robots.txt
-```
-
-Example output:
-```
-User-agent: *
-Disallow: /admin
-Disallow: /private
-Allow: /public
-```
-
-Disallowed paths are often worth testing manually.
-
-### Retrieve sitemap.xml
-
-```bash
-curl https://target.com/sitemap.xml
-```
-
-Sitemaps may expose test, backup, or staging URLs.
-
----
-
-## API Enumeration and Abuse
-
-### Discovering API Endpoints
-
-Common API path patterns:
-```
-/api/v1
-/api/v2
-/service/v1
-```
-
-Create a pattern file:
-```bash
-echo "{GOBUSTER}/v1" > pattern
-echo "{GOBUSTER}/v2" >> pattern
-```
-
-Run Gobuster with pattern matching:
-```bash
-gobuster dir -u http://TARGET:5002 -w /usr/share/wordlists/dirb/big.txt -p pattern
-```
-
-### Inspecting Endpoints
-
-```bash
-curl -i http://TARGET:5002/users/v1
-```
-
-Look for: user data leaks, descriptive field names (email, password, admin), server and framework headers.
-
-### Deep Enumeration of User Paths
-
-```bash
-gobuster dir -u http://TARGET:5002/users/v1/admin/ -w /usr/share/wordlists/dirb/small.txt
-```
-
-If `405 METHOD NOT ALLOWED` is returned instead of `404`, the endpoint exists but requires a different HTTP method.
-
-### HTTP Method Testing
-
-```bash
-curl -X PUT \
-  'http://target/api/users/v1/admin/password' \
-  -H 'Content-Type: application/json' \
-  -H "Authorization: OAuth $TOKEN" \
-  -d '{"password": "newpass"}'
-```
-
-### Privilege Escalation via API Logic Flaws
-
-```bash
-# Register with admin flag
-curl -d '{"password":"test","username":"attacker","email":"a@test.com","admin":"True"}' \
-  -H 'Content-Type: application/json' \
-  http://TARGET:5002/users/v1/register
-
-# Login to retrieve JWT
-curl -d '{"password":"test","username":"attacker"}' \
-  -H 'Content-Type: application/json' \
-  http://TARGET:5002/users/v1/login
-```
-
-### API Security Checklist
-
-- Look for exposed API docs: `/swagger`, `/ui`, `/api-docs`
-- Test for CORS misconfigurations (`Access-Control-Allow-Origin`)
-- Try unauthenticated access to endpoints requiring auth
-- Enumerate versioned APIs -- older versions may be vulnerable
-- If JWT found: decode with `jwt_tool` or jwt.io, test for `alg: none` or weak secrets
-
----
-
-## Content Inspection with Browser Developer Tools
-
-### URL and File Extension Analysis
-
-File extensions reveal backend language/framework:
-- `.php` -- PHP
-- `.jsp`, `.do` -- Java (Servlet/JSP)
-- `.asp`, `.aspx` -- ASP.NET
-- `.py` -- Python (Flask/Django)
-- `.rb` -- Ruby (Rails/Sinatra)
-
-Modern frameworks often use extensionless routes. Check HTTP response headers for server hints.
-
-### Browser Debugger
-
-Open: Menu > Web Developer > Debugger
-
-Use cases:
-- View JavaScript source files (frameworks, libraries, custom code)
-- Detect framework versions (e.g., jQuery 3.6.0)
-- Locate API endpoints inside JS code
-- Pretty-print minified JS with the `{}` button
-
-### Inspector Tool
-
-Right-click on page element > Inspect
-
-Look for:
-- Hidden inputs: `<input type="hidden" name="isAdmin" value="false">`
-- JavaScript event handlers on buttons/forms
-- Developer comments revealing logic or credentials
-
-### Information to Extract
-
-| Category              | Examples                               | Why Useful              |
-|-----------------------|----------------------------------------|-------------------------|
-| Framework Versions    | jQuery, React, Angular, Bootstrap      | Version-specific exploits|
-| Hidden Form Fields    | `csrf_token`, `admin=true`             | Manipulation or bypass  |
-| JS Variables          | API keys, URLs, feature flags          | Lateral movement        |
-| Comments              | `<!-- TODO: Remove debug mode -->`     | Misconfigurations       |
-| Endpoints             | `/api/v1/users`, `/debug`              | Direct access or enum   |
-
-### Quick Workflow
-
-1. Open target URL in browser
-2. Check URL for file extensions or clues
-3. Open Debugger -- note frameworks, versions
-4. Pretty-print minified JS for analysis
-5. Use Inspector to check hidden inputs, form actions, comments
-6. Save found API endpoints or parameter names
-7. Cross-reference with Network tab and proxy tools
-
----
-
-## Sensitive File Checklist
-
-```
-.env
-.git/config
-.htaccess
-.htpasswd
-backup.sql
-config.php
-database.sql
-wp-config.php
-web.config
-admin.php
-phpinfo.php
-test.php
-robots.txt
-sitemap.xml
+# Quick security-header audit across hosts
+nuclei -l live_hosts.txt -t http/misconfiguration/http-missing-security-headers.yaml -silent
 ```
 
 ---
 
-## Complementary Tools
+## HTTP Method & Verb Testing
 
-| Tool           | Purpose                                |
-|----------------|----------------------------------------|
-| Gobuster       | Directory, DNS, vhost brute-forcing    |
-| ffuf           | Fast web fuzzer                        |
-| Dirb           | URL brute-forcing                      |
-| Feroxbuster    | Recursive content discovery            |
-| Dirsearch      | Web path scanner                       |
-| Nikto          | Web server vulnerability scanner       |
-| WhatWeb        | Web technology fingerprinting          |
-| Wappalyzer     | Browser-based tech detection           |
-| BuiltWith      | Online technology profiler             |
-| Burp Suite     | HTTP proxy for traffic interception    |
+```bash
+curl -sI -X OPTIONS https://target.com/api/        # what's allowed?
+curl -s  -X TRACE https://target.com               # XST if reflected
+curl -s  -X PUT https://target.com/test.txt -d 'x' # writable webroot?
+curl -s  -X DELETE https://target.com/resource
+
+# 405 (Method Not Allowed) on a path = endpoint EXISTS but wants another verb
+# 501 = method unsupported; 200 on PUT = potential file upload
+```
+
+A `405` instead of `404` is a tell: the path is real, you're just using the wrong method. Enumerate verbs on every "missing" endpoint that returns 405.
+
+---
+
+## Passive Content Sources (Free Surface)
+
+```bash
+# robots.txt — disallowed paths are a map of what they want hidden
+curl -s https://target.com/robots.txt
+
+# sitemap — often lists staging/test/backup URLs
+curl -s https://target.com/sitemap.xml | grep -oP '(?<=<loc>)[^<]+'
+
+# security.txt — contact + sometimes policy/scope hints
+curl -s https://target.com/.well-known/security.txt
+
+# Archived URLs (no requests to the target — pulled from Wayback/CommonCrawl/OTX)
+gau --subs target.com | anew urls.txt
+waybackurls target.com | anew urls.txt
+```
+
+`Disallow:` entries in robots.txt frequently point straight at admin panels, internal tools, and pre-release features — test them manually.
+
+---
+
+## Active Content Discovery (summary — see `content-discovery.md`)
+
+```bash
+# ffuf directory/file brute-force with auto-calibration
+ffuf -u https://target.com/FUZZ -w /usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt \
+  -mc all -ac -recursion -recursion-depth 2 -e .php,.bak,.json,.zip -o ffuf.json
+
+# feroxbuster — recursive by default, link extraction, robots parsing
+feroxbuster -u https://target.com -w raft-medium-words.txt -x php,bak,json -r -t 50 -o ferox.txt
+
+# Crawl modern apps (parses JS, handles SPAs)
+katana -u https://target.com -jc -kf all -d 3 -o katana_urls.txt
+```
+
+Full wordlist strategy, filtering, and JS/param mining are in `content-discovery.md`.
+
+---
+
+## API Enumeration
+
+APIs are where authorization bugs (IDOR/BOLA), mass-assignment, and excessive-data-exposure live.
+
+```bash
+# Find versioned / common API roots
+ffuf -u https://target.com/FUZZ -w /usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt -mc all -ac
+
+# Hunt API docs / schemas (instant endpoint map if exposed)
+for p in swagger swagger-ui swagger.json openapi.json api-docs v2/api-docs graphql graphiql .well-known/openid-configuration; do
+  echo "== $p =="; curl -s -o /dev/null -w "%{http_code}\n" "https://target.com/$p"
+done
+
+# Kiterunner — API-aware content discovery (uses request bodies/methods, not just paths)
+kr scan https://api.target.com -w routes-large.kite -o api_routes.txt
+```
+
+### GraphQL
+
+```bash
+# Introspection (often left on) dumps the entire schema
+curl -s https://target.com/graphql -H 'Content-Type: application/json' \
+  -d '{"query":"{__schema{types{name fields{name}}}}"}'
+# Then explore with graphw00f (fingerprint engine) + InQL / Voyager for the schema graph
+graphw00f -t https://target.com/graphql
+```
+
+### REST testing patterns
+
+```bash
+# IDOR/BOLA: increment/swap IDs
+curl -s "https://target.com/api/v1/users/1001" -H "Authorization: Bearer $TOK"
+
+# Mass assignment: inject privileged fields on register/update
+curl -s -X POST https://target.com/api/v1/register -H 'Content-Type: application/json' \
+  -d '{"username":"x","password":"x","role":"admin","isAdmin":true}'
+
+# Method-based authz bypass: if GET is blocked, try alternate verbs / X-HTTP-Method-Override
+```
+
+API checklist: exposed docs (`/swagger`, `/graphql`), CORS (`ACAO` reflection), unauthenticated access to auth'd endpoints, old `/v1` next to `/v2`, JWT issues (`alg:none`, weak secret — decode with `jwt_tool`), rate-limit absence on auth endpoints.
+
+---
+
+## JavaScript Analysis (summary — see `content-discovery.md`)
+
+Modern apps put their real attack surface in JS bundles: API endpoints, internal hostnames, feature flags, and sometimes hardcoded keys.
+
+```bash
+# Collect JS files, then mine them
+katana -u https://target.com -jc -silent | grep '\.js' | anew js.txt
+cat js.txt | while read u; do python3 linkfinder.py -i "$u" -o cli; done   # endpoints
+cat js.txt | nuclei -t http/exposures/ -silent                            # secrets/exposures
+trufflehog filesystem ./downloaded_js --only-verified                      # verified secrets
+```
+
+---
+
+## Parameter Discovery (summary — see `content-discovery.md`)
+
+```bash
+arjun -u "https://target.com/page" -m GET,POST           # brute hidden params
+paramspider -d target.com                                # params from archives
+x8 -u "https://target.com/api" -w params.txt             # high-accuracy param miner
+```
+
+Hidden parameters are where reflected-XSS, SSRF, LFI, and IDOR commonly hide — they're not in the visible forms by definition.
+
+---
+
+## nmap NSE for Web (quick win on networks)
+
+```bash
+nmap -p80,443,8080,8443 -sV --script \
+  http-enum,http-title,http-headers,http-methods,http-robots.txt,http-security-headers,http-git \
+  target.com -oN web_nse.txt
+```
+
+Useful when you're on an internal network and want fast per-host web triage without a full toolchain.
+
+---
+
+## Sensitive File Quick-Hits
+
+```text
+.env  .git/config  .git/HEAD  .svn/entries  .DS_Store  .htaccess  .htpasswd
+config.php  wp-config.php  web.config  application.properties  appsettings.json
+backup.zip  backup.sql  db.sql  dump.sql  *.bak  *.old  *.swp  *.orig
+phpinfo.php  info.php  server-status  actuator/env  actuator/heapdump
+docker-compose.yml  .npmrc  .dockercfg  id_rsa  credentials
+```
+
+```bash
+# Exposed .git → reconstruct source
+nuclei -l live_hosts.txt -t http/exposures/configs/git-config.yaml -silent
+git-dumper https://target.com/.git/ ./dumped_repo      # rebuild repo from exposed .git
+```
+
+---
+
+## Cheatsheet
+
+```bash
+httpx -l live.txt -sc -title -td -web-server -cl -favicon -silent       # triage
+curl -sIL https://target.com                                            # headers/redirects
+curl -s https://target.com/robots.txt                                   # disallowed paths
+gau --subs target.com | anew urls.txt                                   # archived URLs
+ffuf -u https://target.com/FUZZ -w raft-medium-directories.txt -ac -mc all  # dir brute
+katana -u https://target.com -jc -d 3 -silent                           # crawl + JS
+curl -s t.com/graphql -d '{"query":"{__schema{types{name}}}"}'          # GraphQL introspect
+arjun -u https://target.com/page -m GET,POST                            # hidden params
+git-dumper https://target.com/.git/ ./repo                              # exposed .git
+```
+
+---
+
+## OPSEC & Pitfalls
+
+- **Triage before brute-forcing** — read headers, robots, sitemap, archives first; they're free and quiet.
+- **Calibrate fuzzers** (`-ac`) — soft-404s (200 on missing pages) wreck naive directory brute-forcing.
+- **Respect WAF/rate limits** — throttle `ffuf -rate`, rotate UA, and watch for sudden 403/429 (you've been flagged).
+- **`405 ≠ dead`** — endpoint exists, wrong verb. Enumerate methods.
+- **GraphQL introspection** is the fastest API map there is — always try it.
+- **Don't use found secrets** — report exposed keys/`.git`; don't authenticate with leaked creds unless scope explicitly allows.
+
+---
+
+## References
+
+- Bug Bounty Hunting Methodology 2025 — https://github.com/amrelsagaei/Bug-Bounty-Hunting-Methodology-2025
+- ffuf — https://github.com/ffuf/ffuf
+- katana — https://github.com/projectdiscovery/katana
+- Kiterunner — https://github.com/assetnote/kiterunner
+- graphw00f — https://github.com/dolevf/graphw00f
+- git-dumper — https://github.com/arthaud/git-dumper
+- HackTricks — Pentesting Web — https://book.hacktricks.xyz/network-services-pentesting/pentesting-web
+- OWASP Web Security Testing Guide — https://owasp.org/www-project-web-security-testing-guide/
+</content>
+</invoke>

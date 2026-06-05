@@ -31,20 +31,46 @@ logger = logging.getLogger("knowledge-service")
 
 KNOWLEDGE_DATA_PATH = os.environ.get("KNOWLEDGE_DATA_PATH", "/data/knowledge")
 
-# Category patterns for precise RAG retrieval
+# Primary categorization: map the on-disk top-level numbered dir to the semantic
+# category vocab the agents pass to knowledge_search(category=...). This MUST stay
+# in sync with backend/apps/knowledge/.../ingest_kb.py::CATEGORY_MAP and with the
+# categories the crew agents request (reconnaissance, web_attacks,
+# vulnerability_scanning, privilege_escalation, active_directory, exploitation,
+# password_attacks, reporting, ...). Without it a category filter never matches.
+DIR_CATEGORY_MAP: dict[str, str] = {
+    "01-reconnaissance": "reconnaissance",
+    "02-web-attacks": "web_attacks",
+    "03-vulnerability-scanning": "vulnerability_scanning",
+    "04-exploitation": "exploitation",
+    "05-privilege-escalation": "privilege_escalation",
+    "06-tunneling-and-pivoting": "tunneling",
+    "07-password-attacks": "password_attacks",
+    "08-active-directory": "active_directory",
+    "09-post-exploitation": "post_exploitation",
+    "10-evasion-techniques": "av_evasion",
+    "11-cloud-security": "cloud_security",
+    "12-command-and-control": "c2_frameworks",
+    "13-reporting-templates": "reporting",
+    "14-tools-reference": "tools_reference",
+}
+
+# Fallback content/path keyword patterns for files outside the numbered layout.
 CATEGORY_PATTERNS: list[tuple[str, list[str]]] = [
     ("privilege_escalation", ["priv", "escalat", "suid", "sudo", "gtfobins"]),
-    ("tunneling", ["tunnel", "ssh", "port forward", "pivot", "sshuttle", "proxychains"]),
+    ("vulnerability_scanning", ["vuln", "nuclei", "nikto", "nessus", "scan"]),
+    ("tunneling", ["tunnel", "port forward", "pivot", "sshuttle", "proxychains", "chisel", "ligolo"]),
     ("flag_hunting", ["flag", "proof.txt", "local.txt"]),
-    ("web_attacks", ["web", "sql", "xss", "csrf", "ssrf", "injection", "owasp"]),
-    ("active_directory", ["active directory", "ad ", "kerberos", "ldap", "bloodhound"]),
+    ("web_attacks", ["web", "sql", "xss", "csrf", "ssrf", "injection", "owasp", "ssti", "xxe"]),
+    ("active_directory", ["active directory", "kerberos", "ldap", "bloodhound", "ntlm", "adcs"]),
     ("reconnaissance", ["recon", "enum", "info gather", "nmap", "subfinder", "osint"]),
-    ("exploitation", ["exploit", "metasploit", "payload", "shellcode", "buffer overflow"]),
+    ("exploitation", ["exploit", "metasploit", "payload", "shellcode", "buffer overflow", "reverse shell"]),
     ("password_attacks", ["password", "hash", "crack", "brute", "hydra", "john"]),
+    ("post_exploitation", ["post-explo", "persistence", "credential harvest", "living off the land"]),
     ("reporting", ["report", "template", "documentation"]),
-    ("c2_frameworks", ["c2", "command and control", "cobalt", "sliver"]),
-    ("av_evasion", ["evasion", "antivirus", "av ", "bypass", "amsi"]),
-    ("cloud_security", ["aws", "azure", "cloud", "s3", "iam"]),
+    ("c2_frameworks", ["c2", "command and control", "cobalt", "sliver", "mythic", "havoc"]),
+    ("av_evasion", ["evasion", "antivirus", "amsi", "obfuscat"]),
+    ("cloud_security", ["aws", "azure", "cloud", "s3", "iam", "kubernetes", "gcp"]),
+    ("tools_reference", ["tools-reference", "cheatsheet"]),
 ]
 
 
@@ -83,7 +109,14 @@ class HealthResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 def categorize_file(rel_path: str) -> str:
-    """Categorize a file based on its path."""
+    """Categorize a file by its top-level numbered directory (primary), falling
+    back to content/path keyword patterns for files outside that layout."""
+    top = rel_path.replace("\\", "/").split("/")[0]
+    if top in DIR_CATEGORY_MAP:
+        return DIR_CATEGORY_MAP[top]
+    # Derive from a numbered-but-unmapped dir, e.g. "15-foo-bar" -> "foo_bar".
+    if "-" in top and top.split("-", 1)[0].isdigit():
+        return top.split("-", 1)[1].replace("-", "_")
     lower = rel_path.lower()
     for category, patterns in CATEGORY_PATTERNS:
         if any(p in lower for p in patterns):

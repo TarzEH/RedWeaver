@@ -143,7 +143,9 @@ class CrewFactory:
             "verbose": verbose,
             "allow_delegation": False,
             "respect_context_window": True,
-            "max_iter": 15,
+            # Raised from 15: deeper methodology + per-domain knowledge_search consult
+            # needs more tool-call iterations to complete without truncation.
+            "max_iter": 20,
         }
 
         agents: dict[str, Agent] = {}
@@ -380,7 +382,10 @@ class CrewFactory:
         try:
             from redweaver_engine.tools.knowledge_query_tool import KnowledgeTool
             knowledge_tool = KnowledgeTool()
-            for name in ("exploit_analyst", "privesc", "tunnel_pivot", "post_exploit", "report_writer"):
+            for name in (
+                "recon", "crawler", "vuln_scanner", "fuzzer", "web_search",
+                "exploit_analyst", "privesc", "tunnel_pivot", "post_exploit", "report_writer",
+            ):
                 if name in agents:
                     agents[name].tools.append(knowledge_tool)
                     logger.debug("Attached knowledge tool to %s", name)

