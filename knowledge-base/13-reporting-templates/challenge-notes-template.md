@@ -1,216 +1,164 @@
-# Target Assessment Notes Template
+# Target / Challenge Notes Template
 
-Structured template for documenting target assessments, lab exercises, and security challenge walkthroughs.
+Structured template for documenting target boxes, lab exercises, CTF challenges, and
+training walkthroughs. Designed to double as practice for real engagement note-taking:
+the same evidence discipline, methodology, and finding structure scaled down for a
+single target. Replace `{{placeholders}}`.
 
----
-
-**Target Name:** {{challenge_name}}
-**Platform:** {{platform}}
-**Difficulty:** {{difficulty}}
-**Date:** {{date}}
-**Status:** {{status}}
+> **Goal:** by the end you should be able to re-own the box from these notes alone,
+> and lift any technique into a real report. Capture commands + output as you go.
 
 ---
 
-## Challenge Overview
+## Header
 
-**Description:**
-{{description}}
-
-**Learning Objectives:**
-- {{objective_1}}
-- {{objective_2}}
-- {{objective_3}}
-
-**Target Information:**
-- **IP Address:** {{target_ip}}
-- **Operating System:** {{target_os}}
-- **Domain:** {{domain}}
+| Field | Value |
+|-------|-------|
+| Target | {{challenge_name}} |
+| Platform | {{HTB/THM/PG/Vulnhub/CTF/lab}} |
+| Difficulty | {{easy/medium/hard/insane}} |
+| OS | {{target_os}} |
+| IP / Domain | {{target_ip}} / {{domain}} |
+| Date | {{date}} · Status: {{in-progress/rooted}} |
+| Objectives | {{what you're practicing}} |
 
 ---
 
-## Reconnaissance
+## Attack Path (fill in as you go — the TL;DR)
 
-### Network Scanning
-
-```bash
-# Initial scan
-nmap -sC -sV {{target_ip}}
-
-# Full port scan
-nmap -p- {{target_ip}}
-
-# UDP scan
-nmap -sU --top-ports 1000 {{target_ip}}
+```
+{{e.g., 80/HTTP → LFI → log poisoning → www-data → sudo GTFOBin → root}}
 ```
 
-**Results:**
+| # | Phase | Technique | Result |
+|---|-------|-----------|--------|
+| 1 | Recon | nmap full | {{open ports}} |
+| 2 | Enum | {{tool}} | {{finding}} |
+| 3 | Foothold | {{vuln}} | {{user shell}} |
+| 4 | PrivEsc | {{method}} | {{root/admin}} |
+
+---
+
+## 1. Reconnaissance
+
+### Port scan
+```bash
+nmap -sC -sV -p- -oA full {{target_ip}}
+sudo nmap -sU --top-ports 50 {{target_ip}}
+```
 ```
 {{nmap_results}}
 ```
 
-### Service Enumeration
+### Per-service enumeration
 
-#### Port {{port_1}} - {{service_1}}
-
+#### Port {{port}} — {{service}}
 ```bash
-{{enum_command_1}}
+{{enum_command}}
 ```
+**Findings:** {{what you learned — versions, vhosts, creds, anonymous access}}
 
-**Findings:**
-- {{finding_1}}
-- {{finding_2}}
-
-#### Port {{port_2}} - {{service_2}}
-
-```bash
-{{enum_command_2}}
-```
-
-**Findings:**
-- {{finding_3}}
-- {{finding_4}}
+> Repeat per interesting port. For web: dirs, vhosts, params, tech stack, source comments.
 
 ---
 
-## Web Application Analysis
-
-### Directory Enumeration
+## 2. Web Application Analysis (if applicable)
 
 ```bash
-gobuster dir -u http://{{target_ip}} -w /usr/share/wordlists/dirb/common.txt
+whatweb http://{{target_ip}}
+ffuf -u http://{{target_ip}}/FUZZ -w /usr/share/seclists/Discovery/Web-Content/raft-medium-words.txt -e .php,.txt -mc all -fc 404
 ```
 
-**Discovered Paths:**
-- `{{path_1}}` - {{description_1}}
-- `{{path_2}}` - {{description_2}}
-- `{{path_3}}` - {{description_3}}
+| Path | Notes |
+|------|-------|
+| `{{/path}}` | {{description}} |
 
-### Technology Stack
-- **Web Server:** {{web_server}}
-- **Framework:** {{framework}}
-- **Database:** {{database}}
-- **CMS:** {{cms}}
+**Stack:** server {{…}} · framework {{…}} · CMS {{…}} · DB {{…}}
+
+**Vulnerability hypotheses:** {{LFI? SQLi? upload? SSTI? deserialization?}}
 
 ---
 
-## Exploitation
+## 3. Foothold (Initial Access)
 
-### Initial Access
+### Vulnerability: {{name}}
+- **Type / CWE:** {{e.g., LFI / CWE-98}}  · **Location:** {{url/param}}
+- **ATT&CK:** {{T1190}}
 
-#### Vulnerability: {{vulnerability_name}}
-
-**Type:** {{vuln_type}}
-**Severity:** {{severity}}
-**Location:** {{vuln_location}}
-
-**Description:**
-{{vuln_description}}
-
-**Exploitation Steps:**
-
+**Exploitation**
 ```bash
-# Step 1: {{step_1}}
-{{command_1}}
-
-# Step 2: {{step_2}}
-{{command_2}}
-
-# Step 3: {{step_3}}
-{{command_3}}
+# 1. {{step}}
+{{command}}
+# 2. {{step}}
+{{command}}
 ```
 
-**Payload:**
+**Payload**
 ```bash
 {{payload}}
 ```
 
-**Result:**
-{{result}}
+**Shell upgrade**
+```bash
+python3 -c 'import pty;pty.spawn("/bin/bash")'  # Ctrl-Z ; stty raw -echo; fg ; export TERM=xterm
+```
+
+**Result:** {{user, where, what access}}
 
 ---
 
-## Post-Exploitation
+## 4. Post-Exploitation & Privilege Escalation
 
-### System Information
-
+### Local enumeration
 ```bash
-# System info
-{{sysinfo_command}}
-
-# User info
-{{userinfo_command}}
-
-# Network info
-{{netinfo_command}}
+id ; sudo -l ; uname -a
+./linpeas.sh        # or winpeas.exe ; whoami /priv /all
+find / -perm -4000 -type f 2>/dev/null ; getcap -r / 2>/dev/null
 ```
+**Interesting:** {{sudo rights, SUID, cron, creds, kernel, capabilities}}
 
-### Privilege Escalation
-
-#### Method: {{privesc_method}}
-
-**Description:**
-{{privesc_description}}
-
-**Commands:**
+### Escalation: {{method}}
+- **ATT&CK:** {{T1548 / T1068 / …}}
 ```bash
 {{privesc_command_1}}
 {{privesc_command_2}}
-{{privesc_command_3}}
 ```
-
-**Success:**
-{{privesc_success}}
+**Result:** {{root/admin proof}}
 
 ---
 
-## Proof Collection
+## 5. Proof Collection
 
-### User Proof
+| Proof | Location | Command | Value |
+|-------|----------|---------|-------|
+| User | `{{path}}` | `{{cmd}}` | `{{hash/flag}}` |
+| Root | `{{path}}` | `{{cmd}}` | `{{hash/flag}}` |
 
-**Location:** `{{user_proof_path}}`
-**Command:** `{{user_proof_command}}`
-**Value:** `{{user_proof}}`
-
-### Root Proof
-
-**Location:** `{{root_proof_path}}`
-**Command:** `{{root_proof_command}}`
-**Value:** `{{root_proof}}`
+> Also grab: `hostname`, `id`, `ip a` in the same screenshot as the flag for proof.
 
 ---
 
-## Alternative Methods
+## 6. Loot & Pivots
 
-### Method 2: {{alt_method_1}}
-
-```bash
-{{alt_command_1}}
-```
-
-### Method 3: {{alt_method_2}}
-
-```bash
-{{alt_command_2}}
-```
+- Credentials found: {{user:pass / hashes / keys}}
+- Internal hosts / services discovered: {{…}}
+- Reusable artifacts: {{config files, tokens, kubeconfig}}
 
 ---
 
-## Key Takeaways
+## 7. Alternative / Unintended Paths
 
-### What Worked
-- {{success_1}}
-- {{success_2}}
-- {{success_3}}
+- **Alt path:** {{description + command}}
+- **Rabbit holes:** {{what wasted time and why — so you skip it next time}}
 
-### What Did Not Work
-- {{failure_1}} - {{failure_reason_1}}
-- {{failure_2}} - {{failure_reason_2}}
+---
 
-### Lessons Learned
-- {{lesson_1}}
-- {{lesson_2}}
-- {{lesson_3}}
+## 8. Takeaways
+
+**Worked:** {{…}}
+**Didn't work (and why):** {{…}}
+**Lessons / new technique learned:** {{…}}
+**Maps to real-world:** {{how this generalizes to a real engagement}}
 
 ---
 
@@ -218,29 +166,17 @@ gobuster dir -u http://{{target_ip}} -w /usr/share/wordlists/dirb/common.txt
 
 | Tool | Command | Purpose |
 |------|---------|---------|
-| {{tool_1}} | `{{tool_command_1}}` | {{tool_purpose_1}} |
-| {{tool_2}} | `{{tool_command_2}}` | {{tool_purpose_2}} |
-| {{tool_3}} | `{{tool_command_3}}` | {{tool_purpose_3}} |
-
----
-
-## References
-
-- [{{reference_1}}]({{ref_url_1}})
-- [{{reference_2}}]({{ref_url_2}})
-- [{{reference_3}}]({{ref_url_3}})
-
----
+| {{tool}} | `{{cmd}}` | {{purpose}} |
 
 ## Timeline
 
 | Time | Action | Result |
 |------|--------|--------|
-| {{time_1}} | {{action_1}} | {{result_1}} |
-| {{time_2}} | {{action_2}} | {{result_2}} |
-| {{time_3}} | {{action_3}} | {{result_3}} |
+| {{t}} | {{action}} | {{result}} |
+
+## References
+- {{writeup / CVE / GTFOBins / HackTricks link}}
 
 ---
 
 **Completed:** {{completion_date}}
-**Review Date:** {{review_date}}

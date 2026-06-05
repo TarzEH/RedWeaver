@@ -1,363 +1,286 @@
-# Port Scanning and Network Reconnaissance
+# Port Scanning & Network Reconnaissance
 
-Port scanning is the foundation of network reconnaissance -- systematically probing TCP and UDP ports to identify running services, detect security controls, and map attack surfaces.
+Port scanning maps the live service surface of a host or network. The modern bug-bounty / red-team approach is a **two-stage pipeline**: a fast, wide scanner (`naabu` or `masscan`) finds *which* ports are open across a huge IP/host set, then `nmap` does deep service/version/script analysis *only* on those open ports. This is dramatically faster than running `nmap -p-` against everything, and it's how top hunters scan thousands of hosts without burning days.
+
+```
+hosts/IPs ──▶ naabu / masscan (fast, wide: which ports open)
+                     │  open ports only
+                     ▼
+                  nmap -sCV (deep: versions, NSE, OS)
+                     │
+                     ▼
+                  httpx (web services) / service-enumeration.md
+```
+
+> **Pipeline rule:** never run a full deep `nmap` against a large target set. Find open ports fast, then point nmap at *only* the open ports. Orders of magnitude faster, same depth.
 
 ---
 
-## TCP Scanning Theory (Three-Way Handshake)
+## Scanning Theory (Why Results Look the Way They Do)
 
-- **Open port**: Target replies with `SYN-ACK`
-- **Closed port**: Target replies with `RST`
-- **Filtered port**: No reply (possible firewall)
+### TCP (connection-oriented, reliable)
 
-### Netcat TCP Scan
+| State | Probe → Response |
+|-------|------------------|
+| **Open** | SYN → SYN-ACK |
+| **Closed** | SYN → RST |
+| **Filtered** | SYN → (no reply / ICMP unreachable) = firewall |
 
-```bash
-nc -nvv -w 1 -z 192.168.50.152 3388-3390
-```
+- **SYN scan (`-sS`)** sends SYN, reads SYN-ACK, then RST (never completes handshake) — fast, "half-open", needs root. Default for nmap as root.
+- **Connect scan (`-sT`)** completes the full TCP handshake via the OS socket API — no root needed, slower, more logged.
 
-| Flag | Description                    |
-|------|--------------------------------|
-| `-n` | No DNS resolution              |
-| `-v` | Verbose                        |
-| `-vv`| Very verbose                   |
-| `-w` | Timeout (seconds)              |
-| `-z` | Zero-I/O mode (scan only)      |
-| `-u` | Use UDP instead of TCP         |
+### UDP (stateless, painful)
+
+- No handshake. Open ports often **don't reply**; closed ports return ICMP port-unreachable; no reply = `open|filtered`.
+- Slow and false-positive-prone — scan only high-value UDP ports (53, 161, 123, 500, 137, 1900, 5353) rather than all 65535.
 
 ---
 
-## UDP Scanning Theory (Stateless)
+## Stage 1 — Fast Wide Scanning
 
-- No handshake -- sends empty UDP packet
-- **Open port**: Often no reply (false positives possible)
-- **Closed port**: ICMP "port unreachable"
-- **Filtered**: No ICMP reply -- scanner assumes "open|filtered"
+### naabu (ProjectDiscovery — the modern default)
 
-### Netcat UDP Scan
+SYN/CONNECT port scanner built to feed the recon pipeline. Plays natively with `httpx`/`nuclei` and can hand off to nmap.
 
 ```bash
-nc -nv -u -z -w 1 192.168.50.149 120-123
+# Top ports across a host list, fast
+naabu -list hosts.txt -top-ports 1000 -rate 2000 -silent -o open_ports.txt
+
+# Full TCP range on a single host
+naabu -host 93.184.216.34 -p - -rate 3000 -silent
+
+# Scan resolved subdomains, output host:port
+naabu -list resolved.txt -p 80,443,8080,8443,3000,5000,8000,9000 -silent
+
+# Hand off discovered ports straight to nmap for deep analysis
+naabu -list hosts.txt -top-ports 1000 -silent -nmap-cli 'nmap -sCV -oA naabu_nmap'
+
+# Exclude noisy CDN ports / hosts; control concurrency
+naabu -list hosts.txt -ep 80,443 -c 50 -rate 1500 -silent
 ```
+
+Key naabu flags: `-p`/`-top-ports`/`-p -` (port selection), `-rate` (packets/sec, default 1000), `-c` (worker threads), `-ep`/`-exclude-ports`, `-s s` (SYN, root) vs `-s c` (connect), `-nmap-cli` (chain into nmap), `-passive` (Shodan InternetDB lookup — *no packets to target*).
+
+```bash
+# Passive port "scan" via Shodan InternetDB — zero packets to the target
+naabu -list hosts.txt -passive -silent
+```
+
+### masscan (internet-scale, asynchronous)
+
+Transmits up to ~10M pps; can scan the whole IPv4 internet in minutes. Use for very large IP ranges; tune the rate down hard for stealth/stability.
+
+```bash
+# Wide sweep of a CIDR for common web ports (paced sanely)
+sudo masscan 93.184.216.0/22 -p80,443,8080,8443 --rate 1000 -oG masscan.gnmap
+
+# Full range on an IP set, then feed open ports to nmap
+sudo masscan -iL ips.txt -p1-65535 --rate 5000 -oL masscan.lst
+awk '/open/{split($4,a,"/"); print a[1]}' masscan.lst | sort -un | paste -sd, > ports.csv
+sudo nmap -sCV -p"$(cat ports.csv)" -iL ips.txt -oA masscan_nmap
+```
+
+> **masscan honesty:** at high rates it drops packets and produces false negatives. For accuracy keep `--rate` modest (1000–5000) and `--retries 2`. Reserve >100k rates for genuine internet-wide work on infrastructure you control.
 
 ---
 
-## TCP vs UDP Overview
+## Stage 2 — Deep Analysis with nmap
 
-| Feature              | TCP                            | UDP                             |
-|----------------------|---------------------------------|----------------------------------|
-| Connection-oriented  | Yes (3-way handshake)           | No (stateless)                  |
-| Scan reliability     | High                            | Low-Medium (due to firewalls)   |
-| Speed                | Slower                          | Faster (less overhead)          |
-| False positives      | Rare                            | More likely                     |
-| Use cases            | Web, SSH, FTP, RDP              | DNS, SNMP, NTP, Syslog          |
-
----
-
-## Nmap Port Scanning
-
-### Default TCP Scan (Top 1000 Ports)
+Run nmap *only against the open ports* found in stage 1.
 
 ```bash
-sudo nmap 192.168.50.149
+# Service + version detection + default scripts + OS, on known-open ports
+sudo nmap -sCV -O -p 22,80,443,3306 -Pn 93.184.216.34 -oA deep_scan
+
+# -sC = default NSE scripts, -sV = version, -sS = SYN, -A = aggressive (sC+sV+O+traceroute)
+sudo nmap -sS -sV -p- --min-rate 1000 93.184.216.34 -oA full_tcp
+
+# High-value UDP only
+sudo nmap -sU -p53,123,161,500,1900,5353 --max-retries 1 93.184.216.34 -oA udp_scan
 ```
 
-### Full TCP Port Scan
+### Essential nmap flags
+
+| Flag | Meaning |
+|------|---------|
+| `-sS` / `-sT` / `-sU` | SYN / Connect / UDP scan |
+| `-sV` | Service/version detection |
+| `-sC` | Default NSE scripts (`--script=default`) |
+| `-O` `--osscan-guess` | OS fingerprint (best-effort) |
+| `-A` | Aggressive: `-sV -sC -O --traceroute` |
+| `-p-` / `-p 1-1000` / `--top-ports N` | Port selection |
+| `-Pn` | Skip host discovery (treat as up — essential when ICMP is filtered) |
+| `-n` | No DNS resolution (faster) |
+| `--min-rate` / `--max-rate` | Packets/sec floor/ceiling |
+| `-T0..-T5` | Timing template (0 paranoid → 5 insane) |
+| `-oA basename` | Output all formats (normal/XML/grepable) |
+| `-iL file` | Targets from file |
+| `--open` | Show only open ports |
+
+### Output handling
 
 ```bash
-sudo nmap -p 1-65535 192.168.50.149
-```
-
-### SYN (Stealth) Scan
-
-```bash
-sudo nmap -sS 192.168.50.149
-```
-
-Sends TCP SYN, waits for SYN-ACK, skips final ACK. Less detectable.
-
-### TCP Connect Scan
-
-```bash
-nmap -sT 192.168.50.149
-```
-
-Uses OS socket API -- no raw sockets needed. Slower, more detectable.
-
-### UDP Scan
-
-```bash
-sudo nmap -sU 192.168.50.149
-```
-
-### Combined TCP SYN + UDP Scan
-
-```bash
-sudo nmap -sS -sU 192.168.50.149
-```
-
-### Host Discovery (Ping Sweep)
-
-```bash
-nmap -sn 192.168.50.1-253
-nmap -sn 192.168.50.1-253 -oG ping-sweep.txt
-grep Up ping-sweep.txt | cut -d " " -f2
-```
-
-### Port Sweep for Specific Port
-
-```bash
-nmap -p 80 192.168.50.1-253 -oG web-sweep.txt
-grep open web-sweep.txt | cut -d" " -f2
-```
-
-### Top Ports Sweep with Service and OS Detection
-
-```bash
-nmap -sT -A --top-ports=20 192.168.50.1-253 -oG top-port-sweep.txt
-```
-
-- `-A`: OS detection, version detection, script scan, traceroute
-- `--top-ports=20`: Scans the 20 most common ports
-
-### OS Fingerprinting
-
-```bash
-sudo nmap -O 192.168.50.14 --osscan-guess
-```
-
-### Service Version Detection
-
-```bash
-nmap -sV 192.168.50.149
-```
-
-### NSE Scripting Engine
-
-```bash
-nmap --script http-headers 192.168.50.6
-nmap --script-help http-headers
-```
-
-### Output Formats
-
-| Format     | Flag            |
-|------------|-----------------|
-| Normal     | `-oN output.txt` |
-| XML        | `-oX output.xml` |
-| Grepable   | `-oG output.gnmap` |
-| All formats| `-oA basename`   |
-
-### Timing Templates
-
-`-T0` (slowest/stealthiest) to `-T5` (fastest/noisiest)
-
----
-
-## Stealth Scanning Methods
-
-```bash
-# FIN scan (bypass simple firewalls)
-nmap -sF TARGET_IP
-
-# NULL scan (no flags set)
-nmap -sN TARGET_IP
-
-# Xmas scan (FIN, PSH, URG flags)
-nmap -sX TARGET_IP
-
-# ACK scan (firewall rule detection)
-nmap -sA TARGET_IP
-```
-
-## Firewall Evasion Techniques
-
-```bash
-# Fragment packets
-nmap -f TARGET_IP
-
-# Use decoy hosts
-nmap -D RND:10 TARGET_IP
-
-# Source port spoofing
-nmap --source-port 53 TARGET_IP
-
-# Slow timing
-nmap -T1 TARGET_IP
-
-# Custom packet timing
-nmap --scan-delay 1s --max-retries 1 TARGET_IP
-
-# Idle scan (zombie host)
-nmap -sI ZOMBIE_HOST TARGET_IP
+sudo nmap -sCV -p- 1.2.3.4 -oA scan          # → scan.nmap / scan.xml / scan.gnmap
+xsltproc /usr/share/nmap/nmap.xsl scan.xml -o report.html   # XML → pretty HTML
+grep -oP '\d+/open' scan.gnmap | cut -d/ -f1 | sort -un      # extract open ports
 ```
 
 ---
 
-## NSE Script Categories
+## Host Discovery (Find Live Hosts First)
 
 ```bash
-nmap --script auth TARGET_IP        # Authentication scripts
-nmap --script brute TARGET_IP       # Brute force scripts
-nmap --script discovery TARGET_IP   # Discovery scripts
-nmap --script exploit TARGET_IP     # Exploitation scripts
-nmap --script vuln TARGET_IP        # Vulnerability scripts
-nmap --script safe TARGET_IP        # Safe scripts (default)
+# Ping sweep (no port scan)
+sudo nmap -sn 192.168.50.0/24 -oG live.txt && grep Up live.txt | cut -d" " -f2
+
+# ARP sweep on local LAN (most reliable on-network)
+sudo nmap -sn -PR 192.168.50.0/24
+
+# When ICMP is blocked, use TCP/UDP/SCTP discovery probes
+sudo nmap -sn -PS22,80,443 -PA80 -PU161 192.168.50.0/24
+
+# fping for raw speed
+fping -a -g 192.168.50.0/24 2>/dev/null
 ```
 
-### Custom Script Execution
+On internet targets, hosts often drop ICMP — use `-Pn` to skip discovery, or probe with `naabu`/`httpx` which assume reachability.
+
+---
+
+## Web-Port Probing (Bug-Bounty Path)
+
+For web-heavy targets, you usually care about *which open ports speak HTTP(S)*. Chain port scan → httpx.
 
 ```bash
-# Run specific scripts
-nmap --script "smb-* and not smb-brute" TARGET_IP
+# naabu finds open ports; httpx confirms which are live web services
+naabu -list resolved.txt -top-ports 1000 -silent \
+  | httpx -sc -title -td -silent -o live_web.txt
 
-# Script with arguments
-nmap --script http-enum --script-args http-enum.basepath='/admin/' TARGET_IP
-
-# Multiple script arguments
-nmap --script smb-brute --script-args userdb=users.txt,passdb=passwords.txt TARGET_IP
+# masscan → httpx for a CIDR
+sudo masscan 1.2.3.0/24 -p1-65535 --rate 2000 -oL ms.lst
+awk '/open/{split($4,a,"/"); print a[1]":"$3}' ms.lst | httpx -silent -sc -title
 ```
 
 ---
 
-## Professional Scanning Workflow
+## Intelligence-Driven Port Sets
 
 ```bash
-# Phase 1: Host Discovery
-nmap -sn 192.168.1.0/24 -oG live_hosts.txt
-
-# Phase 2: Fast Port Discovery
-nmap -sS --top-ports 1000 -T4 -iL live_hosts.txt -oG fast_scan.gnmap
-
-# Phase 3: Full Port Scan
-nmap -sS -p- --min-rate 1000 -iL interesting_hosts.txt -oG full_scan.gnmap
-
-# Phase 4: Service Detection
-nmap -sC -sV -p <open_ports> TARGET_IP -oA detailed_scan
-
-# Phase 5: Vulnerability Assessment
-nmap --script vuln -p <open_ports> TARGET_IP -oA vuln_scan
+# Web
+-p 80,443,8080,8443,8000,8888,9000,9090,3000,5000,4443,7001,9443
+# Databases
+-p 1433,1521,3306,5432,27017,6379,11211,9200,5984,7000,9042,8086
+# Remote access / mgmt
+-p 22,23,3389,5900-5902,5985,5986,623,4786
+# Network / infra
+-p 53,67,69,123,161,162,179,389,443,514,520,1900,5353
 ```
 
 ---
 
-## High-Speed Scanning
+## Stealth & Firewall Evasion
 
 ```bash
-# Fast full port scan
-nmap -sS -p- --min-rate 10000 --max-retries 1 -T5 TARGET_IP
+# Probe scans (map firewall rules / find filtered vs closed)
+sudo nmap -sA 1.2.3.4         # ACK scan → unfiltered vs filtered
+sudo nmap -sF 1.2.3.4         # FIN scan (bypass simple stateless filters)
+sudo nmap -sN 1.2.3.4         # NULL scan
+sudo nmap -sX 1.2.3.4         # Xmas scan
 
-# Parallel host scanning
-nmap -sS --min-hostgroup 50 --max-hostgroup 100 TARGET_NETWORK
+# Evasion knobs (use within scope/authorization only)
+sudo nmap -f 1.2.3.4                       # fragment packets
+sudo nmap -D RND:10 1.2.3.4                # decoy source IPs
+sudo nmap --source-port 53 1.2.3.4         # spoof source port (slip past dumb ACLs)
+sudo nmap -T1 --scan-delay 1s --max-retries 1 1.2.3.4   # slow & quiet
+sudo nmap --data-length 25 --spoof-mac 0 1.2.3.4        # pad payload, randomize MAC
+sudo nmap -sI zombie-host 1.2.3.4          # idle/zombie scan (fully blind source)
+```
 
-# Optimized UDP scan
-nmap -sU --top-ports 100 --max-retries 1 TARGET_IP
+> **Modern reality:** against CDNs/WAFs (Cloudflare, Akamai) you're scanning the *edge*, not the origin. Most "evasion" tricks won't reach the real host. Energy is better spent finding the **origin IP** (cert SANs, favicon hash, historical DNS, `securitytrails`/`shodan` by org) and scanning that directly.
 
-# Bandwidth control
-nmap --min-rate 100 --max-rate 1000 TARGET_NETWORK
+---
+
+## NSE — Targeted Scripting
+
+```bash
+nmap --script vuln -p <open_ports> 1.2.3.4            # known-vuln checks
+nmap --script "smb-* and not smb-brute" -p445 1.2.3.4 # category + filter
+nmap --script http-enum,http-title,http-headers -p80,443 1.2.3.4
+nmap --script ssl-enum-ciphers -p443 1.2.3.4          # TLS posture
+nmap --script-help "http-*"                           # discover scripts
+sudo nmap --script-updatedb                           # refresh after adding scripts
+```
+
+Categories: `safe`, `default`, `discovery`, `version`, `auth`, `brute`, `vuln`, `exploit`, `intrusive`, `dos`. Avoid `intrusive`/`exploit`/`dos`/`brute` on production without explicit authorization.
+
+---
+
+## Full Workflow (Wide → Deep → Web)
+
+```bash
+#!/usr/bin/env bash
+# portscan.sh <hosts-file>
+set -euo pipefail
+HOSTS="$1"
+
+# 1) Fast wide: which ports are open
+naabu -list "$HOSTS" -top-ports 1000 -rate 2000 -silent -o open.txt
+
+# 2) Deep: versions + scripts on open ports only
+awk -F: '{print $1}' open.txt | sort -u > ips.txt
+ports=$(awk -F: '{print $2}' open.txt | sort -un | paste -sd,)
+sudo nmap -sCV -Pn -p "$ports" -iL ips.txt -oA deep
+
+# 3) Web triage: which open ports are live HTTP(S)
+httpx -l open.txt -sc -title -td -silent -o live_web.txt
+echo "[*] open=$(wc -l <open.txt) web=$(wc -l <live_web.txt)"
 ```
 
 ---
 
-## Intelligence-Driven Port Selection
-
-```bash
-# Web services
-nmap -p 80,443,8080,8443,8000,8888,9000,9090 TARGET_IP
-
-# Database services
-nmap -p 1433,1521,3306,5432,27017,6379,11211,9200 TARGET_IP
-
-# Remote access
-nmap -p 22,23,3389,5900,5901,5902 TARGET_IP
-
-# Network infrastructure
-nmap -p 53,67,68,69,123,161,162,514,520,623 TARGET_IP
-```
-
----
-
-## Output Analysis
-
-```bash
-# Convert XML to HTML
-xsltproc /usr/share/nmap/nmap.xsl scan_results.xml -o report.html
-
-# Extract open ports
-grep -oP '\d+/open' scan_results.gnmap | cut -d'/' -f1 | sort -n | uniq
-```
-
----
-
-## iptables for Traffic Control
-
-iptables is the Linux IPv4 packet filtering and NAT framework used for controlling network traffic during scanning operations.
-
-### Key Commands
-
-| Option    | Description                                  |
-|-----------|----------------------------------------------|
-| `-A`      | Append a rule to a chain                     |
-| `-I`      | Insert a rule at top or specified position   |
-| `-D`      | Delete a rule                                |
-| `-L`      | List rules (`-n` for numeric output)         |
-| `-F`      | Flush all rules in a chain                   |
-| `-P`      | Set default policy for a chain               |
-| `-t`      | Specify table (filter, nat, mangle, raw)     |
-
-### Allow Established Return Traffic
-
-```bash
-iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-```
-
-### NAT Masquerade
-
-```bash
-iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-```
-
-### Port Forwarding
-
-```bash
-iptables -t nat -A PREROUTING -i eth0 -p tcp --dport 80 -j DNAT --to-destination 192.168.1.100:8080
-iptables -A FORWARD -p tcp -d 192.168.1.100 --dport 8080 -j ACCEPT
-```
-
-### Save and Restore Rules
-
-```bash
-iptables-save > /etc/iptables/rules.v4
-iptables-restore < /etc/iptables/rules.v4
-```
-
-### Port Scan Detection Rules
-
-```bash
-iptables -A INPUT -p tcp --dport 1:1024 -m state --state NEW -m recent --set --name portscan
-iptables -A INPUT -p tcp --dport 1:1024 -m state --state NEW -m recent --update --seconds 60 --hitcount 10 --name portscan -j DROP
-```
-
----
-
-## PowerShell Alternatives (Windows)
+## PowerShell (Windows, no nmap)
 
 ```powershell
-# TCP port test
-Test-NetConnection -ComputerName 192.168.50.151 -Port 445 -InformationLevel Detailed
-
-# Multi-port scan function
-function Invoke-PortScan {
-    param([string]$Target, [int[]]$Ports)
-    $Ports | ForEach-Object {
-        $Socket = New-Object System.Net.Sockets.TcpClient
-        try {
-            $Socket.Connect($Target, $_)
-            "Port $_ is open"
-            $Socket.Close()
-        } catch {}
-    }
-}
-
-Invoke-PortScan -Target "192.168.1.10" -Ports @(22,80,443,3389)
+Test-NetConnection -ComputerName 10.0.0.5 -Port 445 -InformationLevel Detailed
+1..1024 | ForEach-Object { $c=New-Object Net.Sockets.TcpClient; try { $c.Connect("10.0.0.5",$_); "open:$_"; $c.Close() } catch {} }
 ```
+
+---
+
+## Cheatsheet
+
+```bash
+naabu -list hosts.txt -top-ports 1000 -rate 2000 -silent -o open.txt   # fast wide
+naabu -list hosts.txt -passive -silent                                 # zero-packet (Shodan IDB)
+sudo masscan -iL ips.txt -p1-65535 --rate 3000 -oL ms.lst              # internet-scale
+sudo nmap -sCV -Pn -p <open> -iL ips.txt -oA deep                      # deep on open ports
+sudo nmap -sn 10.0.0.0/24 -oG -                                        # host discovery
+sudo nmap -sU -p53,161,123,500 1.2.3.4                                 # high-value UDP
+naabu -list subs.txt -silent | httpx -sc -title -td -silent            # → web services
+```
+
+---
+
+## OPSEC & Pitfalls
+
+- **Two-stage always** — fast scanner for breadth, nmap for depth on open ports only.
+- **`-Pn` for internet targets** — ICMP is usually filtered; otherwise nmap marks live hosts "down" and skips them.
+- **CDN/WAF = edge, not origin** — find the origin IP before deep-scanning.
+- **masscan/naabu rate honesty** — high rates drop packets → false negatives. Pace for accuracy.
+- **UDP is slow & lies** — scan only high-value UDP ports.
+- **Authorization gates intrusive NSE** — no `vuln`/`brute`/`exploit`/`dos` scripts without explicit sign-off.
+- **Log everything** (`-oA`) — reproducibility and reporting.
+
+---
+
+## References
+
+- ProjectDiscovery — Reconnaissance 103: Host & Port Discovery — https://blog.projectdiscovery.io/reconnaissance-series-3-host-and-port-discovery/
+- naabu — https://github.com/projectdiscovery/naabu
+- masscan — https://github.com/robertdavidgraham/masscan
+- YesWeHack — Recon Series #4: Port Scanning — https://www.yeswehack.com/learn-bug-bounty/recon-port-scanning-attack-vectors
+- Nmap Reference Guide — https://nmap.org/book/man.html
+- Port Scanning for Bug Bounties (Otterly) — https://ott3rly.com/port-scanning-for-bug-bounties/
+- HackTricks — Pentesting Network — https://book.hacktricks.xyz/generic-methodologies-and-resources/pentesting-network
+</content>
+</invoke>

