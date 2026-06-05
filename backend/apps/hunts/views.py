@@ -376,3 +376,49 @@ def run_offsec(request, run_id):
                 pass
         return Response({"status": run.offsec_status})
     return Response({"status": run.offsec_status, "markdown": run.offsec_markdown})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def attack_plan(request):
+    """Preview a pre-hunt ATT&CK plan WITHOUT starting a hunt.
+
+    Body: {target?, attack_techniques?: [ids], navigator_layer?: {layer JSON}, ssh_config?}.
+    Returns the derived {techniques, unknown, tactics, agent_selection, focus} so the
+    UI can show what a hunt scoped to those ATT&CK techniques would run.
+    """
+    from redweaver_engine.crews.bug_hunt.attack_planning import (
+        normalize_technique_id,
+        parse_navigator_layer,
+        plan_from_techniques,
+    )
+    from redweaver_engine.crews.bug_hunt.selection import (
+        TARGET_AGENT_MAP,
+        classify_target,
+    )
+
+    data = request.data if isinstance(request.data, dict) else {}
+    target = (data.get("target") or "").strip()
+    ssh_config = data.get("ssh_config") if isinstance(data.get("ssh_config"), dict) else None
+
+    techniques = [
+        normalize_technique_id(t)
+        for t in (data.get("attack_techniques") or [])
+        if normalize_technique_id(t)
+    ]
+    if not techniques and isinstance(data.get("navigator_layer"), dict):
+        techniques = parse_navigator_layer(data["navigator_layer"])
+
+    target_type = classify_target(target) if target else "web"
+    target_agents = list(TARGET_AGENT_MAP.get(target_type, TARGET_AGENT_MAP["web"]))
+
+    if not techniques:
+        return Response({
+            "target_type": target_type,
+            "techniques": [], "unknown": [], "tactics": [],
+            "agent_selection": [], "focus": "",
+        })
+
+    plan = plan_from_techniques(techniques, target_agents, ssh_config)
+    plan["target_type"] = target_type
+    return Response(plan)
