@@ -612,8 +612,17 @@ export function SessionsPage() {
                   {sessions.map((s) => (
                     <Card key={s.id} className="group hover:border-rw-accent/20 transition-colors cursor-pointer" padding="md">
                       <div
-                        className="flex items-center gap-4"
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Open session ${s.name}`}
+                        className="flex items-center gap-4 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-rw-accent"
                         onClick={() => setActiveSession(s)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setActiveSession(s);
+                          }
+                        }}
                       >
                         <FolderOpen size={18} className="text-rw-accent shrink-0" />
                         <div className="flex-1 min-w-0">

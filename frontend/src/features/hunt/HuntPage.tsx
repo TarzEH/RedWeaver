@@ -43,20 +43,26 @@ export function HuntPage() {
   return (
     <HuntProvider selectedRunId={selectedRunId}>
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        <HuntSidebar
-          runs={runs}
-          selectedRunId={selectedRunId}
-          open={sidebarOpen}
-          onToggle={() => setSidebarOpen(!sidebarOpen)}
-          onSelectRun={(id) => { handleSelectRun(id); fetchRuns(); }}
-          onNewHunt={handleNewHunt}
-        />
+        {/* Hunt list — hidden below lg to keep the main panel usable on narrow screens */}
+        <div className="hidden lg:flex shrink-0">
+          <HuntSidebar
+            runs={runs}
+            selectedRunId={selectedRunId}
+            open={sidebarOpen}
+            onToggle={() => setSidebarOpen(!sidebarOpen)}
+            onSelectRun={(id) => { handleSelectRun(id); fetchRuns(); }}
+            onNewHunt={handleNewHunt}
+          />
+        </div>
         <ChatPanel
           selectedRunId={selectedRunId}
           onSelectRun={(id) => { handleSelectRun(id); fetchRuns(); }}
           onRunDeleted={handleRunDeleted}
         />
-        <DetailPanel runId={selectedRunId} />
+        {/* Right detail panel — hidden below lg */}
+        <div className="hidden lg:flex shrink-0 min-h-0">
+          <DetailPanel runId={selectedRunId} />
+        </div>
       </div>
     </HuntProvider>
   );

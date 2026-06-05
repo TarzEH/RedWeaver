@@ -209,8 +209,17 @@ export function DashboardPage() {
               {runs.map((run) => (
                 <tr
                   key={run.run_id}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Open hunt for ${run.target}`}
                   onClick={() => navigate(`/hunt/${run.run_id}`)}
-                  className="border-b border-rw-border-subtle hover:bg-rw-surface cursor-pointer transition-colors"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      navigate(`/hunt/${run.run_id}`);
+                    }
+                  }}
+                  className="border-b border-rw-border-subtle hover:bg-rw-surface cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-rw-accent focus-visible:ring-inset"
                 >
                   <td className="py-2.5 px-4">
                     <StatusBadge status={run.status} />
