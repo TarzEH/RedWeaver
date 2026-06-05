@@ -87,13 +87,14 @@ The instrumentation seam lives in `redweaver_engine/tools/instrumentation.py` (c
 
 ---
 
-## Knowledge base — Postgres pgvector RAG
+## Knowledge base — practitioner library, dual-store RAG
 
-The KB is ingested into Postgres as embeddings, not served from a separate microservice:
+The `knowledge-base/` is a practitioner-grade library: **75 markdown files across 14 numbered domains** (`01-reconnaissance` … `14-tools-reference`), each with detection-driven methodology, real commands/payloads, and a **Detection & Mitigation** section for the offensive-heavy domains (C2, evasion, AD). It is indexed into **two stores from the same files**, categorized by the top-level numbered directory:
 
-- `manage.py ingest_kb` reads `knowledge-base/**/*.md`, chunks it, embeds each chunk with OpenAI `text-embedding-3-small` (1536-dim), and bulk-inserts `KbChunk` rows.
-- `apps/knowledge/search.py::kb_search()` ranks by `CosineDistance` and returns the top matches (~250 ms).
-- Agents (and the OffSec playbook) query the KB through `instrumentation.kb_search`; the standalone `knowledge` (Chroma) service remains only as an HTTP fallback.
+- **Postgres pgvector** (system of record for the UI): `manage.py ingest_kb` chunks the markdown, embeds each chunk with OpenAI `text-embedding-3-small` (1536-dim), and bulk-inserts `KbChunk` rows. `apps/knowledge/search.py::kb_search()` ranks by `CosineDistance`. Powers the **Knowledge Base viewer**, `/api/knowledge/*`, and the OffSec playbook (`instrumentation.kb_search`).
+- **`knowledge` Chroma microservice** (`:8100`): builds an in-memory Chroma index from the mounted `knowledge-base/` on startup. The **crew agents** query it via the `knowledge_search` tool (`KnowledgeTool`) with a `category` filter to ground their methodology mid-hunt.
+
+> After editing KB content, re-ingest **both**: `docker compose exec worker python manage.py ingest_kb` (pgvector) **and** `docker compose up -d --force-recreate knowledge` (rebuilds the Chroma index on boot). Both derive the same category vocabulary (`reconnaissance`, `web_attacks`, `vulnerability_scanning`, `privilege_escalation`, …) from the directory layout, so an agent's `category=` filter resolves in both.
 
 ---
 
@@ -128,4 +129,6 @@ A run is enqueued by the REST API, executed in the Celery `worker` (out of the A
 - Root: [docker-compose.yml](../docker-compose.yml)
 - Backend: [backend/Dockerfile](../backend/Dockerfile), [backend/entrypoint.sh](../backend/entrypoint.sh)
 - Frontend: [frontend/Dockerfile](../frontend/Dockerfile), [frontend/nginx.conf](../frontend/nginx.conf)
-- Knowledge (legacy fallback): [knowledge-service/Dockerfile](../knowledge-service/Dockerfile)
+- Knowledge (Chroma service the agents query): [knowledge-service/Dockerfile](../knowledge-service/Dockerfile), [knowledge-service/src/knowledge_service/main.py](../knowledge-service/src/knowledge_service/main.py)
+- ATT&CK pre-hunt planning: [backend/redweaver_engine/crews/bug_hunt/attack_planning.py](../backend/redweaver_engine/crews/bug_hunt/attack_planning.py) (technique→agent map, Navigator-layer parser, plan + layer builders) → `POST /api/attack/plan`, `GET /api/runs/<id>/attack-navigator`
+- Reliability watchdog: `reap_stuck_runs` Celery-beat task in [backend/apps/hunts/tasks.py](../backend/apps/hunts/tasks.py) (scheduled in [backend/redweaver/celery.py](../backend/redweaver/celery.py))

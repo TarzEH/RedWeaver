@@ -32,6 +32,8 @@ RedWeaver is an autonomous vulnerability assessment platform that combines LLM r
 
 It runs on **Django (DRF + Channels)** with **PostgreSQL as the single system of record**: every run, finding, agent transition, tool execution (including **raw tool output**), reasoning step, and screenshot is persisted and replayable — debuggable through Django Admin and a dedicated "behind the scenes" UI. The knowledge base is a **pgvector RAG** in Postgres.
 
+**Scope hunts with MITRE ATT&CK.** Before a run you can pick ATT&CK techniques (in a built-in picker or by pasting an [ATT&CK Navigator](https://mitre-attack.github.io/attack-navigator/) layer); the crew is then scoped to the agents behind those tactics and a focus directive is injected into every task. The agents consult a **practitioner-grade knowledge base** (75 files across 14 domains — recon → web → AD → cloud → C2, each with detection & mitigation), and any run's coverage exports back to a one-click **Open in ATT&CK Navigator** layer.
+
 **Zero tool installation.** Everything runs inside Docker. You only need an LLM API key.
 
 ---
@@ -46,8 +48,8 @@ The web UI is a React app (Vite) served behind nginx in Docker. After login you 
 | **Hunt** | Chat-driven hunts with live agent stream (WebSocket), in-thread pentest report, and agent flow panel |
 | **Findings** | Sortable vulnerability list with severity badges, CVE references, and evidence |
 | **Behind the scenes** | Per-run debug view — live topology, agent timeline, tool executions with **raw output**, screenshots, and the full event log; plus a one-click **OffSec playbook** (per-finding attack steps with commands + MITRE ATT&CK, grounded in the pgvector KB) |
-| **Sessions & Targets** | Workspace-scoped projects, session management, and target tracking |
-| **Knowledge Base** | Searchable methodology library (pgvector RAG) — techniques, commands, and patterns |
+| **Sessions & Targets** | Workspace-scoped projects, session management, target tracking, and **Plan with ATT&CK** — scope a hunt to chosen MITRE ATT&CK techniques |
+| **Knowledge Base** | Searchable practitioner methodology library (pgvector RAG) — 14 domains (recon → web → AD → cloud → C2) with commands, payloads, and detection/mitigation |
 | **Settings** | Multi-provider LLM configuration (OpenAI, Anthropic, Google, Ollama, Meta) |
 
 ### Screenshots
@@ -125,7 +127,7 @@ On a **fresh** Postgres volume, the one-shot `migrate` service seeds a demo admi
 ### How It Works
 
 1. **You describe a target** — "Scan example.com for vulnerabilities"
-2. **CrewAI builds a crew** — target type (web vs host) and options pick which agents run; tasks chain with shared context
+2. **CrewAI builds a crew** — target type (web vs host) and options pick which agents run; an optional **pre-hunt ATT&CK plan** narrows the crew to the agents behind the techniques you chose and injects a focus directive into each task; tasks chain with shared context
 3. **Tasks run in order, with parallel batches where safe** — after **Recon** completes, **Fuzzer** and **Vuln Scanner** are scheduled as **asynchronous tasks** so CrewAI can run them **in parallel**, then **Crawler** and later steps run when their inputs are ready. Steps that need prior outputs (e.g. exploit analysis after all scans) still wait — correctness comes before wall-clock speed.
 4. **Findings stream in real-time** — a WebSocket (Django Channels) pushes every tool call, thought, transition, and finding to the UI; all of it is persisted to Postgres and replayed on reconnect
 5. **Report is generated** — the Report Writer produces a **structured Markdown** pentest report (headings, tables, lists, code blocks, callouts), grounded in hunt context and the pgvector knowledge base; the UI can render it in Standard or Enhanced styling. An optional **OffSec playbook** turns the findings into per-finding attack steps with commands and MITRE ATT&CK techniques.
@@ -152,6 +154,12 @@ The **workflow graph** may show an **Orchestrator** node for visualization only.
 
 Phases are **logical**; the exact task order is defined in code (`CrewFactory`) and may differ slightly by target (e.g. no crawler on non-web targets).
 
+Every scan agent can call **`knowledge_search`** to ground its methodology in the pgvector KB, and when a **pre-hunt ATT&CK plan** is supplied the agent set is scoped to the selected tactics (`select_agent_names(attack_techniques=…)`).
+
+### Pre-hunt ATT&CK planning
+
+From **Sessions & Targets**, click **Plan with ATT&CK** to pick techniques (curated picker grouped by tactic, or paste an [ATT&CK Navigator](https://mitre-attack.github.io/attack-navigator/) layer JSON). A live preview (`POST /api/attack/plan`) shows the derived target type, tactics, and **which agents will run**, plus a one-click **Open plan in Navigator**. After a run, the report's *Framework Coverage* card exports the observed techniques as a Navigator layer too (`GET /api/runs/<id>/attack-navigator`). A Celery-beat **watchdog** (`reap_stuck_runs`) fails any run orphaned past its timeout, so the dashboard never shows a hung "running" scan.
+
 ---
 
 ## Tools
@@ -160,14 +168,14 @@ All tools run as CLI binaries inside the Docker container — no external accoun
 
 | Tool | Category | Purpose |
 |------|----------|---------|
-| [nmap](https://nmap.org/) | Recon | Port scanning, service detection |
+| [nmap](https://nmap.org/) | Recon | Port scanning — deep default scan (`-sV -sC`, top-1000 ports) with service/version + default-script parsing |
 | [subfinder](https://github.com/projectdiscovery/subfinder) | Recon | Subdomain enumeration |
 | [httpx](https://github.com/projectdiscovery/httpx) | Recon | HTTP probing, tech detection |
 | [whatweb](https://github.com/urbanadventurer/WhatWeb) | Recon | Web technology fingerprinting |
 | [theHarvester](https://github.com/laramies/theHarvester) | OSINT | Email, subdomain, IP harvesting |
 | [nuclei](https://github.com/projectdiscovery/nuclei) | Scanning | Template-based vulnerability scanning |
 | [nikto](https://github.com/sullo/nikto) | Scanning | Web server misconfiguration scanner |
-| [ffuf](https://github.com/ffuf/ffuf) | Fuzzing | Web fuzzer for directories and parameters |
+| [ffuf](https://github.com/ffuf/ffuf) | Fuzzing | Web fuzzer for directories and parameters (file-extension + recursive discovery) |
 | [gobuster](https://github.com/OJ/gobuster) | Fuzzing | Directory/DNS brute-forcing |
 | [katana](https://github.com/projectdiscovery/katana) | Crawling | Web crawler for endpoint discovery |
 
