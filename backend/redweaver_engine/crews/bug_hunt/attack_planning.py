@@ -201,6 +201,50 @@ def plan_from_techniques(
     }
 
 
+def plan_navigator_layer(
+    technique_ids: list[str],
+    tactics: list[str] | None = None,
+    target_label: str = "",
+) -> dict:
+    """Build a spec-compliant ATT&CK Navigator (layer v4.5) for a PRE-HUNT plan.
+
+    The selected techniques are highlighted (score 1, accent color, "planned"
+    comment) so the operator can open the plan directly in the ATT&CK Navigator.
+    Mirrors the post-hunt coverage layer in findings.attack_map.navigator_layer.
+    """
+    label = (target_label or "target").strip()
+    techniques = []
+    for raw in technique_ids:
+        tid = normalize_technique_id(raw)
+        if not tid:
+            continue
+        info = TECHNIQUE_INFO.get(tid) or TECHNIQUE_INFO.get(tid.split(".", 1)[0])
+        name = info[1] if info else ""
+        techniques.append({
+            "techniqueID": tid,
+            "score": 1,
+            "color": "#22d3ee",  # accent: planned/in-scope
+            "comment": f"Planned (in scope){' — ' + name if name else ''}",
+            "enabled": True,
+        })
+    return {
+        "name": f"RedWeaver plan — {label}"[:120],
+        "versions": {"attack": "15", "navigator": "4.9.1", "layer": "4.5"},
+        "domain": "enterprise-attack",
+        "description": (
+            f"Pre-hunt ATT&CK plan for {label}: techniques the operator scoped this "
+            f"engagement to. Tactics: {', '.join(tactics or []) or 'n/a'}."
+        ),
+        "sorting": 3,
+        "hideDisabled": False,
+        "techniques": techniques,
+        "gradient": {"colors": ["#1e3a5f", "#22d3ee"], "minValue": 0, "maxValue": 1},
+        "legendItems": [{"label": "Planned / in scope", "color": "#22d3ee"}],
+        "showTacticRowBackground": True,
+        "tacticRowBackground": "#0a0f1e",
+    }
+
+
 def build_focus(technique_ids: list[str], tactics: list[str]) -> str:
     """Build the ATT&CK FOCUS directive appended to each task description."""
     if not technique_ids:

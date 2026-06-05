@@ -391,6 +391,7 @@ def attack_plan(request):
         normalize_technique_id,
         parse_navigator_layer,
         plan_from_techniques,
+        plan_navigator_layer,
     )
     from redweaver_engine.crews.bug_hunt.selection import (
         TARGET_AGENT_MAP,
@@ -421,4 +422,6 @@ def attack_plan(request):
 
     plan = plan_from_techniques(techniques, target_agents, ssh_config)
     plan["target_type"] = target_type
+    # Attach a ready-to-open ATT&CK Navigator layer for the planned techniques.
+    plan["layer"] = plan_navigator_layer(plan["techniques"], plan["tactics"], target)
     return Response(plan)

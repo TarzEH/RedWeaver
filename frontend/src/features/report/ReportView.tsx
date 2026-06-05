@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { ShieldAlert, ListChecks, DollarSign } from "lucide-react";
+import { ShieldAlert, ListChecks, DollarSign, ExternalLink } from "lucide-react";
 import { api } from "../../services/api";
 import type { AttackChain } from "../../services/api";
 import { ApiError } from "../../services/http";
+import { useToast } from "../../components/ui/feedback";
+import { openInNavigator } from "../../lib/navigator";
 import type { Finding, VulnerabilityReport } from "../../types/api";
 import { severityHex, SEVERITY_ORDER } from "../../config/theme";
 import { Spinner } from "../../components/ui/Spinner";
@@ -56,6 +58,18 @@ export function ReportView({ runId: runIdProp }: ReportViewProps) {
   const [chains, setChains] = useState<AttackChain[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
+
+  const openCoverageInNavigator = async () => {
+    if (!runId) return;
+    try {
+      const layer = await api.runs.attackNavigator(runId);
+      openInNavigator(layer, `redweaver-${runId.slice(0, 8)}-coverage.json`);
+      toast.info("Coverage layer downloaded — in the Navigator choose 'Open Existing Layer → Upload'.");
+    } catch {
+      toast.error("Could not build the ATT&CK Navigator layer for this run.");
+    }
+  };
 
   useEffect(() => {
     if (!runId) {
@@ -187,7 +201,17 @@ export function ReportView({ runId: runIdProp }: ReportViewProps) {
 
         {/* MITRE ATT&CK heatmap */}
         <section>
-          <SectionTitle>Framework Coverage</SectionTitle>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <SectionTitle>Framework Coverage</SectionTitle>
+            {runId && (
+              <button
+                onClick={openCoverageInNavigator}
+                className="inline-flex items-center gap-1.5 rounded-md border border-rw-border px-2.5 py-1 text-xs text-rw-muted transition-colors hover:text-rw-text"
+              >
+                <ExternalLink size={13} /> Open in ATT&CK Navigator
+              </button>
+            )}
+          </div>
           <MitreHeatmap techniques={mitre} />
         </section>
 

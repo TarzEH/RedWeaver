@@ -105,6 +105,8 @@ export interface AttackPlan {
   tactics: string[];
   agent_selection: string[];
   focus: string;
+  /** Ready-to-open ATT&CK Navigator layer for the planned techniques. */
+  layer?: Record<string, unknown>;
 }
 
 /* ── Types matching backend DTOs ── */
@@ -246,6 +248,9 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ question }),
       }),
+    // ATT&CK Navigator coverage layer built from this run's findings.
+    attackNavigator: (id: string) =>
+      request<Record<string, unknown>>(`/api/runs/${id}/attack-navigator`),
   },
 
   insights: {
