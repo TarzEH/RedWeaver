@@ -21,7 +21,11 @@ from redweaver_engine.crews.bug_hunt.config_loader import (
     get_task_description_templates,
     validate_configs,
 )
-from redweaver_engine.crews.bug_hunt.selection import SSH_AGENTS, select_agent_names
+from redweaver_engine.crews.bug_hunt.selection import (
+    SSH_AGENTS,
+    TARGET_AGENT_MAP,
+    select_agent_names,
+)
 from redweaver_engine.crews.bug_hunt.template import fetch_report_template
 from redweaver_engine.crews.bug_hunt.schemas import (
     CrawlerResult,
@@ -69,9 +73,26 @@ class CrewFactory:
         task_callback: Callable | None = None,
         event_bridge: CrewAIEventBridge | None = None,
         run_id: str | None = None,
+        attack_techniques: list[str] | None = None,
     ) -> Crew:
         has_ssh = ssh_config is not None and ssh_config.get("host")
-        target_type, selected = select_agent_names(target, objective, ssh_config)
+        target_type, selected = select_agent_names(
+            target, objective, ssh_config, attack_techniques=attack_techniques,
+        )
+
+        # Pre-hunt ATT&CK focus directive appended to every task so the crew
+        # prioritizes the operator-selected techniques.
+        attack_focus = ""
+        if attack_techniques:
+            from redweaver_engine.crews.bug_hunt.attack_planning import (
+                plan_from_techniques,
+            )
+            _plan = plan_from_techniques(
+                attack_techniques,
+                list(TARGET_AGENT_MAP.get(target_type, TARGET_AGENT_MAP["web"])),
+                ssh_config,
+            )
+            attack_focus = _plan["focus"]
 
         logger.debug(
             "Target classification: %s -> type=%s, agents=%s, ssh=%s",
@@ -93,6 +114,7 @@ class CrewFactory:
             scope=scope,
             has_ssh=has_ssh,
             event_bridge=event_bridge,
+            attack_focus=attack_focus,
         )
 
         if has_ssh:
@@ -191,6 +213,7 @@ class CrewFactory:
         scope: str,
         has_ssh: bool,
         event_bridge: CrewAIEventBridge | None = None,
+        attack_focus: str = "",
     ) -> list[Task]:
         scope_str = scope or "only the exact target given"
         fmt = {"target": target, "scope": scope_str}
@@ -207,6 +230,8 @@ class CrewFactory:
             expected_output: str = "",
         ) -> Task:
             desc = td[name].format(**fmt)
+            if attack_focus:
+                desc = f"{desc}\n\n{attack_focus}"
             if not expected_output:
                 expected_output = f"Structured {name} results with all security findings in the findings array"
             task = Task(

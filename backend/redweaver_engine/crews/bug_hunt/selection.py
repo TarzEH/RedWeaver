@@ -52,8 +52,16 @@ def select_agent_names(
     target: str,
     objective: str = "comprehensive",
     ssh_config: dict[str, Any] | None = None,
+    attack_techniques: list[str] | None = None,
 ) -> tuple[str, list[str]]:
-    """Return (target_type, flat list of agent keys used for this hunt, in crew construction order)."""
+    """Return (target_type, flat list of agent keys used for this hunt, in crew construction order).
+
+    When ``attack_techniques`` (a list of MITRE ATT&CK technique ids, typically
+    chosen by the operator in the ATT&CK Navigator) is provided, the agent set is
+    scoped to the agents that exercise the tactics behind those techniques —
+    intersected with the agents valid for the target type — instead of the full
+    objective-based set.
+    """
     is_quick = objective.lower() in ("quick", "fast", "minimal")
     has_ssh = ssh_config is not None and bool(ssh_config.get("host"))
 
@@ -62,6 +70,14 @@ def select_agent_names(
 
     if is_quick:
         selected = [a for a in selected if a not in ("crawler", "web_search")]
+
+    if attack_techniques:
+        # ATT&CK-scoped plan: derive agents from the selected techniques, bounded
+        # by the agents valid for this target (+ SSH tier when configured).
+        from redweaver_engine.crews.bug_hunt.attack_planning import plan_from_techniques
+
+        plan = plan_from_techniques(attack_techniques, selected, ssh_config)
+        return target_type, plan["agent_selection"]
 
     if has_ssh:
         selected = [*selected, *SSH_AGENTS]
