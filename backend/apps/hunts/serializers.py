@@ -248,6 +248,12 @@ class HuntCreateSerializer(serializers.Serializer):
     agent_selection = serializers.ListField(child=serializers.CharField(), required=False)
     timeout_seconds = serializers.IntegerField(required=False, default=900)
     ssh_config = serializers.DictField(required=False)
+    # Pre-hunt ATT&CK plan: either an explicit technique-id list, or a full ATT&CK
+    # Navigator layer (the JSON exported from the Navigator) we parse server-side.
+    attack_techniques = serializers.ListField(
+        child=serializers.CharField(), required=False,
+    )
+    navigator_layer = serializers.DictField(required=False)
 
     def create(self, validated):
         request = self.context.get("request")
@@ -255,6 +261,21 @@ class HuntCreateSerializer(serializers.Serializer):
         target_obj = Target.objects.filter(id__in=target_ids).first() if target_ids else None
         session = Session.objects.filter(id=validated["session_id"]).first() \
             if validated.get("session_id") else None
+
+        # Resolve the ATT&CK focus: explicit techniques win; otherwise parse a
+        # Navigator layer if one was supplied.
+        from redweaver_engine.crews.bug_hunt.attack_planning import (
+            normalize_technique_id,
+            parse_navigator_layer,
+        )
+        techniques = [
+            normalize_technique_id(t)
+            for t in (validated.get("attack_techniques") or [])
+            if normalize_technique_id(t)
+        ]
+        if not techniques and validated.get("navigator_layer"):
+            techniques = parse_navigator_layer(validated["navigator_layer"])
+
         return Run.objects.create(
             session=session,
             target_obj=target_obj,
@@ -263,6 +284,7 @@ class HuntCreateSerializer(serializers.Serializer):
             target=(target_obj.address_string() if target_obj else ""),
             objective=validated.get("objective", "comprehensive"),
             agent_selection=validated.get("agent_selection", []),
+            attack_focus=techniques,
             timeout_seconds=validated.get("timeout_seconds", 900),
             ssh_config=validated.get("ssh_config"),
         )

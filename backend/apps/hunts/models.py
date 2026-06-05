@@ -166,6 +166,10 @@ class Run(TimeStampedUUIDModel):
     scope = models.CharField(max_length=512, blank=True, default="")
     objective = models.CharField(max_length=128, default="comprehensive")
     agent_selection = models.JSONField(default=list, blank=True)
+    # Pre-hunt ATT&CK plan: operator-selected MITRE ATT&CK technique ids (from the
+    # ATT&CK Navigator). When set, the crew is scoped to the agents/tactics behind
+    # these techniques and a focus directive is injected into every task.
+    attack_focus = models.JSONField(default=list, blank=True)
     timeout_seconds = models.IntegerField(default=900)
     ssh_config = models.JSONField(null=True, blank=True)
 

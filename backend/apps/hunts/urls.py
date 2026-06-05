@@ -10,6 +10,7 @@ from .views import (
     ScheduleViewSet,
     SessionViewSet,
     TargetViewSet,
+    attack_plan,
     run_ask,
     run_attack_graph,
     run_offsec,
@@ -32,5 +33,6 @@ urlpatterns = [
     path("sessions/<uuid:session_id>/assets", session_assets, name="session-assets"),
     path("sessions/<uuid:session_id>/posture", session_posture, name="session-posture"),
     path("runs/<uuid:run_id>/attack-graph", run_attack_graph, name="run-attack-graph"),
+    path("attack/plan", attack_plan, name="attack-plan"),
     *router.urls,
 ]
