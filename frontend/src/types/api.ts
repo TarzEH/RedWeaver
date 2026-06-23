@@ -105,6 +105,32 @@ export interface KeysStatus {
   selected_model: string | null;
 }
 
+export interface EmbeddingModelOption {
+  id: string;
+  dim: number;
+  label: string;
+}
+
+export interface EmbeddingProviderOption {
+  id: string;
+  label: string;
+  needs_key: boolean;
+  models: EmbeddingModelOption[];
+}
+
+export interface EmbeddingConfig {
+  provider: string;
+  model: string;
+  dimension: number;
+  device: string;
+  status: "idle" | "running" | "done" | "error";
+  last_error: string;
+  last_indexed_at: string | null;
+  chunk_count: number;
+  openai_key_configured: boolean;
+  providers: EmbeddingProviderOption[];
+}
+
 export interface OllamaModel {
   name: string;
   size: number;

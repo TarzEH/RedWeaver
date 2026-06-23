@@ -61,6 +61,13 @@ langchain-ollama>=0.3.0
 # LangChain text splitters (KB ingestion: markdown-aware chunking for pgvector RAG)
 langchain-text-splitters>=0.3.0
 
+# Offline local embeddings (HuggingFace via LangChain SDK) -- an OpenAI-free,
+# key-free alternative for the pgvector KB. Only needed when
+# KB_EMBED_PROVIDER=huggingface; pulls in torch + sentence-transformers (large).
+# For a smaller CPU-only image, preinstall CPU torch from the PyTorch CPU index.
+langchain-huggingface>=0.1.2
+sentence-transformers>=3.0.0
+
 # Anthropic support
 anthropic>=0.40.0
 

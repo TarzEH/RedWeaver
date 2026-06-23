@@ -4,6 +4,7 @@ import { Card, CardHeader } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { ProviderModelSelector } from "../../components/domain/ProviderModelSelector";
+import { EmbeddingSettingsCard } from "./EmbeddingSettingsCard";
 import { PROVIDERS, sortModelsDesc } from "../../config/providers";
 import { api } from "../../services/api";
 import type { KeysStatus, ToolInfo, ToolsAPIResponse, OllamaModel } from "../../types/api";
@@ -211,6 +212,9 @@ export function SettingsPage() {
           )}
         </Card>
       </form>
+
+      {/* Knowledge Base Embeddings */}
+      <EmbeddingSettingsCard />
 
       {/* Security Tools */}
       <Card padding="lg">

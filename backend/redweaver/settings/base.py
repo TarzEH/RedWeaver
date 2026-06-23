@@ -241,6 +241,26 @@ USE_TZ = True
 KNOWLEDGE_SERVICE_URL = env(
     "KNOWLEDGE_SERVICE_URL", default="http://localhost:8100"
 )
+
+# ----------------------------------------------------------------------------
+# KB embedding provider (pgvector RAG) — pick where the vectors come from.
+#   openai      -> OpenAI text-embedding-3-small (1536 dims, needs an API key)
+#   huggingface -> local sentence-transformers via LangChain (fully offline,
+#                  no key); default model all-MiniLM-L6-v2 = 384 dims
+# KB_EMBED_DIM must match the model's output dimension; migration 0003 aligns
+# the pgvector column to it. Switching provider requires a re-ingest (ingest_kb).
+# ----------------------------------------------------------------------------
+KB_EMBED_PROVIDER = env("KB_EMBED_PROVIDER", default="openai").lower()
+KB_EMBED_MODEL = env("KB_EMBED_MODEL", default="")  # blank -> provider default
+# Parse defensively: Compose passes an empty string when the var is unset, which
+# env.int() would choke on. Blank -> provider-appropriate default.
+_kb_embed_dim_raw = env("KB_EMBED_DIM", default="")
+KB_EMBED_DIM = (
+    int(_kb_embed_dim_raw)
+    if str(_kb_embed_dim_raw).strip()
+    else (384 if KB_EMBED_PROVIDER == "huggingface" else 1536)
+)
+KB_EMBED_DEVICE = env("KB_EMBED_DEVICE", default="cpu") or "cpu"  # cpu | cuda (HF)
 # Fernet key for ApiKeyVault secret encryption (falls back to derived from SECRET_KEY).
 FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY", default="")
 
