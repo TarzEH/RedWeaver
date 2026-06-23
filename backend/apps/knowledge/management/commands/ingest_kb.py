@@ -1,14 +1,17 @@
 """Ingest the knowledge base into Postgres pgvector (chunk + embed + store).
 
-Chunking is markdown-structure-aware: it splits on headers and paragraph
-boundaries and never cuts inside a fenced code block or table, so retrieved
-chunks keep whole commands/payloads intact (critical for the OffSec playbook).
+Files are discovered with ``glob`` and chunked with a markdown-aware LangChain
+splitter (see ``apps.knowledge.chunking``): it splits on headers and prefers
+fenced-code-block / heading boundaries, so retrieved chunks keep whole
+commands/payloads intact (critical for the OffSec playbook).
 """
+import glob
 import os
 from pathlib import Path
 
 from django.core.management.base import BaseCommand
 
+from apps.knowledge.chunking import chunk_markdown
 from apps.knowledge.embeddings import embed_texts
 from apps.knowledge.models import KbChunk
 
@@ -32,68 +35,6 @@ CATEGORY_MAP = {
 }
 
 
-def _atomic_blocks(text: str) -> list[str]:
-    """Split markdown into atomic blocks (paragraphs, headers, whole code fences)
-    that must never be cut internally."""
-    blocks: list[str] = []
-    cur: list[str] = []
-    in_fence = False
-
-    def flush():
-        nonlocal cur
-        if cur:
-            blocks.append("\n".join(cur))
-            cur = []
-
-    for line in text.split("\n"):
-        stripped = line.lstrip()
-        if stripped.startswith("```"):
-            if not in_fence:
-                flush()
-                in_fence = True
-                cur = [line]
-            else:
-                cur.append(line)
-                in_fence = False
-                flush()
-            continue
-        if in_fence:
-            cur.append(line)
-            continue
-        if line.startswith("#"):  # header is its own boundary
-            flush()
-            blocks.append(line)
-            continue
-        if stripped == "":
-            flush()
-            continue
-        cur.append(line)
-    flush()
-    return [b for b in blocks if b.strip()]
-
-
-def chunk_markdown(text: str, size: int = 1200, overlap: int = 150) -> list[str]:
-    """Pack atomic markdown blocks into ~size-char chunks without splitting code."""
-    chunks: list[str] = []
-    buf = ""
-    for b in _atomic_blocks(text):
-        # A single oversized block (huge code dump) gets hard-split as a fallback.
-        if len(b) > size * 1.6:
-            if buf.strip():
-                chunks.append(buf.strip())
-                buf = ""
-            for i in range(0, len(b), size):
-                chunks.append(b[i:i + size])
-            continue
-        if buf and len(buf) + len(b) + 1 > size:
-            chunks.append(buf.strip())
-            buf = buf[-overlap:] if overlap else ""  # carry a little context
-        buf = (buf + "\n" + b) if buf else b
-    if buf.strip():
-        chunks.append(buf.strip())
-    return [c for c in chunks if c.strip()]
-
-
 class Command(BaseCommand):
     help = "Read knowledge-base markdown, chunk, embed (OpenAI), store in pgvector."
 
@@ -106,7 +47,10 @@ class Command(BaseCommand):
 
     def handle(self, *args, **opts):
         source = Path(opts["source"])
-        md_files = sorted(source.rglob("*.md"))
+        # Discover every markdown file under the source tree with glob.
+        md_files = sorted(
+            Path(p) for p in glob.glob(str(source / "**" / "*.md"), recursive=True)
+        )
         if not md_files:
             self.stderr.write(f"No .md files under {source}")
             return
@@ -115,7 +59,7 @@ class Command(BaseCommand):
         KbChunk.objects.all().delete()
         total = 0
         for f in md_files:
-            rel = str(f.relative_to(source))
+            rel = str(f.relative_to(source)).replace(os.sep, "/")
             top = rel.split("/")[0]
             category = CATEGORY_MAP.get(top, top.split("-", 1)[-1].replace("-", "_"))
             text = f.read_text(encoding="utf-8", errors="replace")

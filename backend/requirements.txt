@@ -58,6 +58,9 @@ langchain-anthropic>=0.3.0
 langchain-google-genai>=2.1.0
 langchain-ollama>=0.3.0
 
+# LangChain text splitters (KB ingestion: markdown-aware chunking for pgvector RAG)
+langchain-text-splitters>=0.3.0
+
 # Anthropic support
 anthropic>=0.40.0
 
