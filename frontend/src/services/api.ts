@@ -398,6 +398,15 @@ export const api = {
         "/api/knowledge/ask",
         { method: "POST", body: JSON.stringify({ question }) },
       ),
+    embeddingConfig: () =>
+      request<EmbeddingConfig>("/api/knowledge/embedding-config"),
+    saveEmbeddingConfig: (body: { provider?: string; model?: string; device?: string }) =>
+      request<EmbeddingConfig>("/api/knowledge/embedding-config", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    reindex: () =>
+      request<EmbeddingConfig>("/api/knowledge/reindex", { method: "POST" }),
   },
 
   /* Behind-the-scenes observability (the debug surface) */

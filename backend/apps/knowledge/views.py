@@ -1,11 +1,45 @@
 """Knowledge endpoints — backed by the Postgres pgvector RAG."""
+import os
+
 from django.db.models import Count
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import KbChunk
+from .models import KbChunk, KbEmbeddingConfig
 from .search import kb_search
+
+# Curated suggestions for the Settings embedding dropdowns (dimension is still
+# auto-detected from the model on re-index; these are only UI hints).
+OPENAI_EMBED_MODELS = [
+    {"id": "text-embedding-3-small", "dim": 1536, "label": "text-embedding-3-small (1536)"},
+    {"id": "text-embedding-3-large", "dim": 3072, "label": "text-embedding-3-large (3072)"},
+]
+HF_EMBED_MODELS = [
+    {"id": "sentence-transformers/all-MiniLM-L6-v2", "dim": 384, "label": "all-MiniLM-L6-v2 (384, fast)"},
+    {"id": "BAAI/bge-small-en-v1.5", "dim": 384, "label": "bge-small-en-v1.5 (384)"},
+    {"id": "BAAI/bge-base-en-v1.5", "dim": 768, "label": "bge-base-en-v1.5 (768)"},
+    {"id": "BAAI/bge-large-en-v1.5", "dim": 1024, "label": "bge-large-en-v1.5 (1024)"},
+    {"id": "intfloat/e5-base-v2", "dim": 768, "label": "e5-base-v2 (768)"},
+]
+
+
+def _serialize_embed_config(cfg: KbEmbeddingConfig) -> dict:
+    return {
+        "provider": cfg.provider,
+        "model": cfg.model,
+        "dimension": cfg.dimension,
+        "device": cfg.device,
+        "status": cfg.status,
+        "last_error": cfg.last_error,
+        "last_indexed_at": cfg.last_indexed_at.isoformat() if cfg.last_indexed_at else None,
+        "chunk_count": cfg.chunk_count,
+        "openai_key_configured": bool(os.environ.get("OPENAI_API_KEY", "").strip()),
+        "providers": [
+            {"id": "openai", "label": "OpenAI", "needs_key": True, "models": OPENAI_EMBED_MODELS},
+            {"id": "huggingface", "label": "HuggingFace (offline)", "needs_key": False, "models": HF_EMBED_MODELS},
+        ],
+    }
 
 
 @api_view(["GET"])
@@ -126,3 +160,46 @@ def knowledge_query(request):
         "results_count": len(results),
         "results": results,
     })
+
+
+@api_view(["GET", "POST"])
+@permission_classes([IsAuthenticated])
+def embedding_config(request):
+    """GET the global embedding config (+ provider/model options & re-index status);
+    POST to update provider/model/device. Changing these does NOT re-embed — the
+    caller must trigger /api/knowledge/reindex afterwards."""
+    cfg = KbEmbeddingConfig.get_solo()
+    if request.method == "POST":
+        data = request.data or {}
+        provider = str(data.get("provider", cfg.provider)).lower()
+        valid = {c[0] for c in KbEmbeddingConfig.PROVIDER_CHOICES}
+        if provider not in valid:
+            return Response({"error": f"invalid provider (use {sorted(valid)})"}, status=400)
+        cfg.provider = provider
+        if "model" in data:
+            cfg.model = str(data.get("model") or "").strip()
+        if "device" in data:
+            cfg.device = (str(data.get("device") or "cpu").strip() or "cpu")
+        cfg.save(update_fields=["provider", "model", "device", "updated_at"])
+    return Response(_serialize_embed_config(cfg))
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def reindex_knowledge(request):
+    """Kick off a background re-index with the active embedding config.
+    Auto-detects the model dimension, retypes the pgvector column, re-embeds."""
+    cfg = KbEmbeddingConfig.get_solo()
+    if cfg.status == KbEmbeddingConfig.STATUS_RUNNING:
+        return Response(
+            {"error": "re-index already running", **_serialize_embed_config(cfg)},
+            status=409,
+        )
+    cfg.status = KbEmbeddingConfig.STATUS_RUNNING
+    cfg.last_error = ""
+    cfg.save(update_fields=["status", "last_error", "updated_at"])
+
+    from .tasks import reindex_kb_task
+
+    reindex_kb_task.delay()
+    return Response(_serialize_embed_config(cfg), status=202)
