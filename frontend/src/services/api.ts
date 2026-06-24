@@ -5,6 +5,7 @@ import type {
   KeysStatus,
   ToolsAPIResponse,
   VulnerabilityReport,
+  EmbeddingConfig,
 } from "../types/api";
 import { apiDelete, apiFetch } from "./http";
 

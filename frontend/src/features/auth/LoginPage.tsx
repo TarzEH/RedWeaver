@@ -41,7 +41,7 @@ export function LoginPage({ onSwitchToRegister }: LoginPageProps) {
           <p className="text-xs text-rw-dim mb-4">Sign in to continue</p>
           <div className="bg-rw-surface/50 border border-rw-border rounded-lg px-3 py-2 mb-4">
             <p className="text-[10px] text-rw-dim uppercase tracking-wider mb-1">Default credentials</p>
-            <p className="text-xs text-rw-muted font-mono">admin@redweaver.io / redweaver</p>
+            <p className="text-xs text-rw-muted font-mono">admin@redweaver.local / admin</p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
