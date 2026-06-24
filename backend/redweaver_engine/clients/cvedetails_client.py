@@ -20,6 +20,14 @@ _USER_AGENT = (
     "(+https://github.com/redweaver; security-research)"
 )
 
+# Resilience for the NVD call: a single timed-out request used to drop CVE
+# enrichment entirely (leaving findings with an uncorroborated CVSS/CVE). Retry
+# transient failures (read timeout, network error, 429/503/504) with backoff.
+_REQUEST_TIMEOUT = 20  # seconds per attempt
+_MAX_ATTEMPTS = 3
+_BACKOFF_BASE = 2.0  # seconds: waits ~2s then ~4s between attempts
+_TRANSIENT_HTTP = {429, 503, 504}
+
 
 class CVEDetailsClient:
     """NVD API v2.0 client for CVE lookups with cvedetails.com references."""
@@ -41,21 +49,43 @@ class CVEDetailsClient:
         self._last_request = time.monotonic()
 
     def _nvd_request(self, params: dict[str, str]) -> dict[str, Any]:
-        """Make a rate-limited request to the NVD API."""
-        self._throttle()
+        """Make a rate-limited request to the NVD API, retrying transient failures.
+
+        HTTPError is a subclass of URLError, so it is handled first: permanent
+        codes (e.g. 404) raise immediately; 429/503/504 and network/read timeouts
+        back off and retry before giving up.
+        """
         query = urllib.parse.urlencode(params)
         url = f"{self.NVD_BASE}?{query}"
         headers: dict[str, str] = {"User-Agent": _USER_AGENT}
         if self._api_key:
             headers["apiKey"] = self._api_key
         req = urllib.request.Request(url, headers=headers, method="GET")
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                return json.loads(resp.read().decode())
-        except urllib.error.HTTPError as e:
-            body = e.read().decode() if e.fp else ""
-            logger.warning("NVD API error %s: %s", e.code, body[:200])
-            raise RuntimeError(f"NVD API error {e.code}: {body[:200]}") from e
+
+        last_exc: Exception | None = None
+        for attempt in range(_MAX_ATTEMPTS):
+            self._throttle()
+            try:
+                with urllib.request.urlopen(req, timeout=_REQUEST_TIMEOUT) as resp:
+                    return json.loads(resp.read().decode())
+            except urllib.error.HTTPError as e:
+                if e.code in _TRANSIENT_HTTP and attempt < _MAX_ATTEMPTS - 1:
+                    last_exc = e
+                    time.sleep(_BACKOFF_BASE * (2 ** attempt))
+                    continue
+                body = e.read().decode() if e.fp else ""
+                logger.warning("NVD API error %s: %s", e.code, body[:200])
+                raise RuntimeError(f"NVD API error {e.code}: {body[:200]}") from e
+            except (urllib.error.URLError, TimeoutError) as e:
+                last_exc = e
+                if attempt < _MAX_ATTEMPTS - 1:
+                    time.sleep(_BACKOFF_BASE * (2 ** attempt))
+                    continue
+                logger.warning("NVD request failed after %d attempts: %s", _MAX_ATTEMPTS, e)
+                raise RuntimeError(
+                    f"NVD request failed after {_MAX_ATTEMPTS} attempts: {e}"
+                ) from e
+        raise RuntimeError(f"NVD request failed: {last_exc}")  # pragma: no cover
 
     @staticmethod
     def _parse_cve(vuln: dict[str, Any]) -> dict[str, Any]:
