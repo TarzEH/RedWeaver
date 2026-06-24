@@ -201,6 +201,24 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
                           <span className="text-rw-text font-mono">{f.tool_used}</span>
                         </div>
                       )}
+                      {f.exploitability && f.exploitability !== "unknown" && (
+                        <div>
+                          <span className="text-rw-dim block mb-0.5">Exploitability</span>
+                          <span className="text-rw-text capitalize">{f.exploitability}</span>
+                        </div>
+                      )}
+                      {f.epss_score != null && (
+                        <div>
+                          <span className="text-rw-dim block mb-0.5" title="Exploit Prediction Scoring System — likelihood of exploitation in the wild (next 30 days)">EPSS</span>
+                          <span className="text-rw-text tabular-nums">{(f.epss_score * 100).toFixed(1)}%</span>
+                        </div>
+                      )}
+                      {f.confidence != null && (
+                        <div>
+                          <span className="text-rw-dim block mb-0.5" title="Corroborating-signal confidence">Confidence</span>
+                          <span className="text-rw-text tabular-nums">{Math.round(f.confidence * 100)}%</span>
+                        </div>
+                      )}
                     </div>
                     {f.evidence && (
                       <div>
@@ -219,9 +237,16 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
                     {f.cve_ids.length > 0 && (
                       <div className="flex flex-wrap gap-1">
                         {f.cve_ids.map((cve) => (
-                          <span key={cve} className="text-[10px] font-mono bg-rw-surface text-rw-muted px-1.5 py-0.5 rounded">
+                          <a
+                            key={cve}
+                            href={`https://nvd.nist.gov/vuln/detail/${encodeURIComponent(cve)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="Open on NVD"
+                            className="text-[10px] font-mono bg-rw-surface text-rw-muted px-1.5 py-0.5 rounded hover:text-rw-text transition-colors"
+                          >
                             {cve}
-                          </span>
+                          </a>
                         ))}
                       </div>
                     )}
