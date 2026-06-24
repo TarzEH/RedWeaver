@@ -4,6 +4,7 @@
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> &bull;
+  <a href="#-guides">Guides</a> &bull;
   <a href="#ui-overview">UI overview</a> &bull;
   <a href="#architecture">Architecture</a> &bull;
   <a href="#agent-pipeline">Agents</a> &bull;
@@ -35,6 +36,20 @@ It runs on **Django (DRF + Channels)** with **PostgreSQL as the single system of
 **Scope hunts with MITRE ATT&CK.** Before a run you can pick ATT&CK techniques (in a built-in picker or by pasting an [ATT&CK Navigator](https://mitre-attack.github.io/attack-navigator/) layer); the crew is then scoped to the agents behind those tactics and a focus directive is injected into every task. The agents consult a **practitioner-grade knowledge base** (75 files across 14 domains — recon → web → AD → cloud → C2, each with detection & mitigation), and any run's coverage exports back to a one-click **Open in ATT&CK Navigator** layer.
 
 **Zero tool installation.** Everything runs inside Docker. You only need an LLM API key.
+
+---
+
+## 📚 Guides
+
+Task-focused guides live in [`docs/`](docs/):
+
+| Guide | For |
+|-------|-----|
+| [Quickstart — run your first scan](docs/QUICKSTART_UI.md) | Fresh checkout → finished report in ~5 minutes |
+| [Reading a report](docs/READING_A_REPORT.md) | What every section and badge (CVSS, EPSS, KEV, SSVC…) means |
+| [Development](docs/DEVELOPMENT.md) | Local dev (Docker & non-Docker), checks CI runs, repo layout |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Failed/hung runs, rate limits, key errors, blank UI |
+| [Architecture](docs/ARCHITECTURE.md) | System design — containers and Python package layers |
 
 ---
 
