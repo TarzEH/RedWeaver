@@ -145,6 +145,10 @@ def _graph_snapshot(run, data, seq) -> None:
 
 
 def _finding(run, data) -> None:
+    from apps.findings.noise import downgrade_expected_noise
+
+    # Truthfully rank bare expected-port observations as informational before persist.
+    data = downgrade_expected_noise(data)
     title = data.get("title") or "Untitled"
     affected = data.get("affected_url") or data.get("url") or ""
     severity = (data.get("severity") or "info").lower()

@@ -31,8 +31,12 @@ _RULES: list[tuple[tuple[str, ...], list[tuple[str, str, str]]]] = [
     (("subdomain", "dns", "whois", "osint", "harvester"),
      [("T1595", "Active Scanning", "reconnaissance")]),
     (("exfil", "data leak", "sensitive data"), [("T1041", "Exfiltration Over C2 Channel", "exfiltration")]),
-    (("cve-", "vulnerab", "outdated", "version"),
-     [("T1203", "Exploitation for Client Execution", "execution")]),
+    (("ssl", "tls", "man-in-the-middle", "mitm", "spoof", "certificate", "downgrade"),
+     [("T1557", "Adversary-in-the-Middle", "credential-access")]),
+    # A CVE / outdated component on a public-facing service is exploitation of that
+    # service (T1190), not client-side execution (T1203, which is malicious docs/links).
+    (("cve-", "vulnerab", "outdated", "version", "component", "end-of-life", "eol"),
+     [("T1190", "Exploit Public-Facing Application", "initial-access")]),
 ]
 _FALLBACK = [("T1190", "Exploit Public-Facing Application", "initial-access")]
 
