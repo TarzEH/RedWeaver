@@ -50,6 +50,15 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ContextRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="bg-rw-elevated px-3 py-2">
+      <div className="text-[11px] font-semibold uppercase tracking-wider text-rw-dim">{label}</div>
+      <div className="mt-0.5 break-words text-sm text-rw-text">{value}</div>
+    </div>
+  );
+}
+
 export function ReportView({ runId: runIdProp }: ReportViewProps) {
   const params = useParams<{ runId?: string }>();
   const runId = runIdProp ?? params.runId;
@@ -184,6 +193,88 @@ export function ReportView({ runId: runIdProp }: ReportViewProps) {
           <SeverityBar counts={counts} />
           <CvssEpssScatter findings={report.findings ?? []} />
         </div>
+
+        {/* Scan context — scope/objective/methodology + recon metadata */}
+        {(report.objective?.trim() ||
+          report.scope?.trim() ||
+          report.methodology?.trim() ||
+          report.total_endpoints > 0 ||
+          (report.agents_executed?.length ?? 0) > 0 ||
+          (report.tools_used?.length ?? 0) > 0) && (
+          <section>
+            <SectionTitle>Scan Context</SectionTitle>
+            <div className="grid grid-cols-1 gap-px overflow-hidden rounded-xl border border-rw-border bg-rw-border sm:grid-cols-2">
+              {report.objective?.trim() && <ContextRow label="Objective" value={report.objective} />}
+              {report.scope?.trim() && <ContextRow label="Scope" value={report.scope} />}
+              {report.total_endpoints > 0 && (
+                <ContextRow label="Endpoints discovered" value={String(report.total_endpoints)} />
+              )}
+              {(report.discovered_services?.length ?? 0) > 0 && (
+                <ContextRow label="Services discovered" value={String(report.discovered_services.length)} />
+              )}
+              {(report.agents_executed?.length ?? 0) > 0 && (
+                <ContextRow label="Agents executed" value={report.agents_executed.join(", ")} />
+              )}
+              {(report.tools_used?.length ?? 0) > 0 && (
+                <ContextRow label="Tools used" value={report.tools_used.join(", ")} />
+              )}
+            </div>
+            {report.methodology?.trim() && (
+              <div className="mt-3 rounded-xl border border-rw-border bg-rw-elevated p-4">
+                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-rw-dim">
+                  Methodology
+                </div>
+                <div className="whitespace-pre-line text-sm leading-relaxed text-rw-muted">
+                  {report.methodology.trim()}
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Discovered surface — recon results (services + technologies) */}
+        {((report.discovered_services?.length ?? 0) > 0 ||
+          (report.discovered_technologies?.length ?? 0) > 0) && (
+          <section>
+            <SectionTitle>Discovered Surface</SectionTitle>
+            <div className="space-y-4 rounded-xl border border-rw-border bg-rw-elevated p-4">
+              {(report.discovered_services?.length ?? 0) > 0 && (
+                <div className="space-y-1.5">
+                  {report.discovered_services.map((s, i) => (
+                    <div
+                      key={`${s.host}:${s.port ?? ""}:${i}`}
+                      className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-rw-border-subtle bg-rw-surface/30 px-3 py-2 text-sm"
+                    >
+                      <span className="font-mono text-rw-text">
+                        {s.host}
+                        {s.port != null ? `:${s.port}` : ""}
+                      </span>
+                      {s.service && <span className="text-rw-muted">{s.service}</span>}
+                      {s.version && <span className="text-xs text-rw-dim">{s.version}</span>}
+                      {s.status_code != null && (
+                        <span className="ml-auto rounded bg-rw-surface px-1.5 py-0.5 text-[11px] tabular-nums text-rw-dim">
+                          {s.status_code}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {(report.discovered_technologies?.length ?? 0) > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {report.discovered_technologies.map((t) => (
+                    <span
+                      key={t}
+                      className="rounded-md border border-rw-border-subtle bg-rw-surface/40 px-2 py-0.5 text-xs text-rw-muted"
+                    >
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
 
         {/* Attack paths */}
         <section>
