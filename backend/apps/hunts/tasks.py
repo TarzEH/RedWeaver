@@ -14,6 +14,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.accounts.keys import keys_provider_for_user
+from apps.common.redaction import scrub_secrets
 
 from .costs import estimate_cost_usd
 from .crew_factory import build_crew_factory
@@ -206,11 +207,14 @@ def execute_run(self, run_id: str) -> None:
             callback("hunt_error", {"error": run.error_message})
         except Exception as exc:  # noqa: BLE001
             logger.exception("execute_run failed for %s", run_id)
+            # Provider errors echo back credential fragments (e.g. OpenAI 401) —
+            # scrub before this reaches the DB and the UI.
+            safe_error = scrub_secrets(str(exc))
             run.status = RunStatus.FAILED
-            run.error_message = str(exc)
+            run.error_message = safe_error
             run.completed_at = timezone.now()
             run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
-            callback("hunt_error", {"error": str(exc)})
+            callback("hunt_error", {"error": safe_error})
         finally:
             try:
                 from redweaver_engine.tools.ssh.session_manager import SSHSessionManager
