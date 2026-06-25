@@ -66,6 +66,19 @@ langchain-text-splitters>=0.3.0
 # KB_EMBED_PROVIDER=huggingface; pulls in torch + sentence-transformers (large).
 # For a smaller CPU-only image, preinstall CPU torch from the PyTorch CPU index.
 langchain-huggingface>=0.1.2
+
+# ----------------------------------------------------------------------------
+# Engine refactor: CrewAI -> deepagents (LangGraph DAG). Migrated incrementally
+# behind HUNT_ENGINE; pin deepagents (pre-1.0, churns) and langgraph.
+# See docs/refactor-deepagents-ragas.md.
+# ----------------------------------------------------------------------------
+deepagents>=0.6,<0.7
+langgraph>=0.2,<0.7
+
+# RAG evaluation (Ragas) — context recall/precision, faithfulness, answer
+# relevancy over the pgvector KB. rapidfuzz powers the non-LLM metrics.
+ragas>=0.4,<0.5
+rapidfuzz>=3.0
 sentence-transformers>=3.0.0
 
 # Anthropic support

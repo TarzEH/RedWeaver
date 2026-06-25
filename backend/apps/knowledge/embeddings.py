@@ -136,3 +136,22 @@ def probe_dimension() -> int:
     """Return the embedding dimension of the active provider/model by embedding a
     tiny probe. Used by re-index to size the pgvector column automatically."""
     return len(embed_query("dimension probe"))
+
+
+def get_langchain_embeddings():
+    """Return a LangChain ``Embeddings`` object matching the active KB config.
+
+    Used by the Ragas evaluation harness (which needs a LangChain embeddings
+    instance to wrap). For HuggingFace this reuses the same cached local model
+    that ingestion/search use; for OpenAI it builds ``OpenAIEmbeddings`` with the
+    same model + resolved key.
+    """
+    cfg = active_config()
+    if cfg["provider"] == "huggingface":
+        return _get_hf_embedder(cfg["model"], cfg["device"])
+    from langchain_openai import OpenAIEmbeddings
+
+    key = _resolve_key()
+    if not key:
+        raise RuntimeError("No OpenAI API key available for embeddings")
+    return OpenAIEmbeddings(model=cfg["model"], api_key=key)

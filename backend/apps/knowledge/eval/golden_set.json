@@ -1,0 +1,52 @@
+[
+  {
+    "user_input": "How do I enumerate SUID binaries for Linux privilege escalation?",
+    "reference": "Use `find / -perm -4000 -type f 2>/dev/null` to list SUID binaries, then check GTFOBins for known exploitation paths to escalate to root.",
+    "expected_file": "privilege-escalation"
+  },
+  {
+    "user_input": "How do I exploit SQL injection with sqlmap?",
+    "reference": "Run sqlmap against the vulnerable parameter, e.g. `sqlmap -u 'http://target/page?id=1' --batch --dbs`, then dump tables with --dump once a database is identified.",
+    "expected_file": "sql-injection"
+  },
+  {
+    "user_input": "What payloads test for reflected cross-site scripting (XSS)?",
+    "reference": "Inject script payloads such as `<script>alert(1)</script>` or event-handler vectors like `\"><img src=x onerror=alert(1)>` into reflected parameters and observe execution in the response.",
+    "expected_file": "cross-site-scripting"
+  },
+  {
+    "user_input": "How do I run an nmap service and version scan?",
+    "reference": "Use `nmap -sV -sC -p- <target>` to scan all ports with service/version detection and default scripts; -sV fingerprints services and -sC runs default NSE scripts.",
+    "expected_file": "reconnaissance"
+  },
+  {
+    "user_input": "How do I brute-force SSH credentials with hydra?",
+    "reference": "Use `hydra -L users.txt -P passwords.txt ssh://<target>` to attempt SSH logins from username and password lists.",
+    "expected_file": "password-attacks"
+  },
+  {
+    "user_input": "How do I scan a web app for vulnerabilities with nuclei?",
+    "reference": "Run `nuclei -u https://target -t <templates>` to scan with community templates; nuclei matches known CVEs, misconfigurations, and exposures via YAML templates.",
+    "expected_file": "vulnerability-scanning"
+  },
+  {
+    "user_input": "How does Kerberoasting work in Active Directory?",
+    "reference": "Request service tickets for accounts with SPNs, extract the TGS hashes (e.g. with GetUserSPNs/Rubeus), and crack them offline to recover the service account password.",
+    "expected_file": "active-directory"
+  },
+  {
+    "user_input": "How do I set up SSH port forwarding to pivot into an internal network?",
+    "reference": "Use SSH local/dynamic forwarding, e.g. `ssh -D 1080 user@pivot` for a SOCKS proxy or `ssh -L <lport>:<internal_host>:<rport> user@pivot` to reach internal services through the compromised host.",
+    "expected_file": "tunneling"
+  },
+  {
+    "user_input": "How do I enumerate publicly readable AWS S3 buckets?",
+    "reference": "Enumerate candidate bucket names and test access with the AWS CLI, e.g. `aws s3 ls s3://<bucket> --no-sign-request`, to find buckets that allow anonymous listing or reads.",
+    "expected_file": "cloud-security"
+  },
+  {
+    "user_input": "How do I harvest credentials after gaining a foothold?",
+    "reference": "Collect credentials from memory and disk on the compromised host (e.g. Mimikatz/LSASS on Windows, files and history on Linux) and reuse them for lateral movement.",
+    "expected_file": "post-exploitation"
+  }
+]

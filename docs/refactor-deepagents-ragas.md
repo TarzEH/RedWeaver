@@ -213,6 +213,24 @@ Selection: `settings.HUNT_ENGINE` (env `HUNT_ENGINE`, default `crewai`).
   `langchain-text-splitters`, `langchain-huggingface`, `pgvector`, `pydantic`.
 - **Remove (Phase 6):** `crewai`, `crewai-tools`.
 
-## 8. Rollback
+## 8. Implementation status (this branch)
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| 0 — engine seam + `HUNT_ENGINE` flag | **Done** | `apps/hunts/engines/`; `execute_run`/offsec delegate. CrewAI default — no behavior change. Compile-checked. |
+| 1 — LangChain tool adapter + LLM builder | **Done** | `tools/langchain_adapter.py` (ports `_run` verbatim); `LLMFactory.build_langchain_chat_model`. Compile-checked. |
+| 2 — offsec on deepagents | **Partial** | `DeepAgentsEngine.run_offsec` implemented + **VERIFY**-marked; needs a stack run against the pinned deepagents version. |
+| 3 — bug_hunt LangGraph DAG | **Not started** | `DeepAgentsEngine.run_hunt` raises NotImplemented. The big piece — must be built/validated on a running stack, not offline. |
+| 4 — parity validation + default flip | **Not started** | Depends on Phase 3. |
+| 5 — Ragas eval harness | **Done** | `apps/knowledge/eval/` + `eval_kb_ragas` command + golden set. Reuses multi-provider LLM + offline embeddings. Compile-checked; needs a stack run to validate scores. |
+| 6 — remove CrewAI | **Not started** | Follow-up after deepagents is the proven default. |
+
+**Verification debt (no local stack here):** everything is compile-checked, but
+nothing has been run against Postgres + the live libraries. Before merging beyond
+the foundation, run in Docker: `docker compose up --build`, then
+`python manage.py eval_kb_ragas --no-generation` (retrieval metrics, cheapest),
+and a CrewAI hunt to confirm Phase 0 didn't regress the default path.
+
+## 9. Rollback
 Per-phase: `HUNT_ENGINE=crewai` restores CrewAI instantly (Phases 0–4). The branch
 is not merged until Phase 4 parity holds; Ragas (Phase 5) is additive and isolated.
