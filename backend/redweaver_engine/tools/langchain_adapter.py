@@ -137,3 +137,29 @@ def to_langchain_tools(tools: list[BugHuntTool], run_id: Any = None, agent: Any 
     """Convert available BugHuntTools to LangChain tools, baking run/agent context
     so concurrent (graph-parallel) nodes still record tool executions."""
     return [to_langchain_tool(t, run_id, agent) for t in tools if t.is_available()]
+
+
+def crewai_tool_to_langchain(crew_tool: Any):
+    """Wrap a CrewAI ``BaseTool`` (e.g. the SSH / file-IO suites) as a LangChain
+    StructuredTool, reusing its name/description/args_schema and calling ``_run``.
+
+    These tools are attached directly in the CrewAI path (not via the BugHuntTool
+    adapter), so — for parity — they are wrapped here without the extra
+    ToolExecution instrumentation, matching current behavior.
+    """
+    from langchain_core.tools import StructuredTool
+
+    def _run(**kwargs: Any) -> Any:
+        return crew_tool._run(**kwargs)
+
+    return StructuredTool.from_function(
+        func=_run,
+        name=getattr(crew_tool, "name", crew_tool.__class__.__name__),
+        description=getattr(crew_tool, "description", "") or "",
+        args_schema=getattr(crew_tool, "args_schema", None),
+    )
+
+
+def crewai_tools_to_langchain(tools: list) -> list:
+    """Wrap a list of CrewAI BaseTools as LangChain tools."""
+    return [crewai_tool_to_langchain(t) for t in tools]

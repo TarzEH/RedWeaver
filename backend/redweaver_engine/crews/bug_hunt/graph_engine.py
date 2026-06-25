@@ -233,6 +233,31 @@ class GraphHuntEngine:
         cfg = self._prompts[agent_name]
         return f"ROLE: {cfg['role']}\n\nGOAL: {cfg['goal']}\n\n{cfg['backstory']}"
 
+    def _extra_tools_for(self, agent_name: str) -> list:
+        """SSH + file-IO tools (CrewAI suites) wrapped for LangChain, mirroring
+        the CrewAI factory's _attach_ssh_tools / _attach_file_io_tools."""
+        from redweaver_engine.tools.langchain_adapter import crewai_tools_to_langchain
+
+        extra: list = []
+        if agent_name in SSH_AGENTS:
+            try:
+                from redweaver_engine.tools.ssh import (
+                    SSHCommandTool, SSHFileDownloadTool, SSHFileUploadTool, SSHTunnelTool,
+                )
+                extra += crewai_tools_to_langchain([
+                    SSHCommandTool(), SSHFileUploadTool(),
+                    SSHFileDownloadTool(), SSHTunnelTool(),
+                ])
+            except ImportError as e:
+                logger.warning("SSH tools unavailable for %s: %s", agent_name, e)
+        if agent_name in ("report_writer", "post_exploit"):
+            try:
+                from redweaver_engine.tools.file_io import FileReaderTool, FileWriterTool
+                extra += crewai_tools_to_langchain([FileWriterTool(), FileReaderTool()])
+            except ImportError as e:
+                logger.warning("File I/O tools unavailable for %s: %s", agent_name, e)
+        return extra
+
     def _build_sub_agent(self, agent_name: str):
         with self._lock:
             if agent_name in self._agent_cache:
@@ -243,6 +268,7 @@ class GraphHuntEngine:
                 self._registry.get_tools_for_agent(agent_name), self._run_id, agent_name
             )
             tools.append(self._knowledge_tool)
+            tools += self._extra_tools_for(agent_name)
             agent = create_deep_agent(
                 model=self._llm,
                 tools=tools,
