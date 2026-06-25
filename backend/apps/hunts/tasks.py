@@ -17,7 +17,6 @@ from apps.accounts.keys import keys_provider_for_user
 from apps.common.redaction import scrub_secrets
 
 from .costs import estimate_cost_usd
-from .crew_factory import build_crew_factory
 from .models import Run, RunStatus
 from .observability_sink import make_event_callback
 
@@ -111,72 +110,38 @@ def execute_run(self, run_id: str) -> None:
     callback = make_event_callback(run)
 
     # Engine imports are deferred so the web process / mgmt commands stay light.
-    from redweaver_engine.crews.bug_hunt.callbacks import (
-        CrewAIEventBridge,
-        _extract_report_markdown,
-    )
-    from redweaver_engine.huntflow_types import HuntflowTree
     from redweaver_engine.tools.instrumentation import run_context
 
+    from .engines import NoLLMKeyError, get_hunt_engine
+
     keys = keys_provider_for_user(run.created_by)
-    factory = build_crew_factory(keys)
-    if factory is None:
-        callback("hunt_error", {"error": "No LLM API key configured"})
-        run.status = RunStatus.FAILED
-        run.error_message = "No LLM API key configured"
-        run.save(update_fields=["status", "error_message", "updated_at"])
-        return
-
-    tree = HuntflowTree(str(run.id), run.target or "")
-    bridge = CrewAIEventBridge(tree=tree, event_callback=callback, run_id=str(run.id))
-
-    callback("graph_state", {
-        "current_node": "orchestrator", "action": "start",
-        "active_nodes": ["orchestrator"], "completed_nodes": [],
-    })
+    engine = get_hunt_engine()
 
     with run_context(str(run.id), None):
         try:
-            crew = factory.create_crew(
-                target=run.target or "",
-                scope=run.scope or "",
-                objective=run.objective or "comprehensive",
-                ssh_config=run.ssh_config if isinstance(run.ssh_config, dict) else None,
-                step_callback=bridge.step_callback,
-                task_callback=bridge.task_callback,
-                event_bridge=bridge,
-                run_id=str(run.id),
-                attack_techniques=run.attack_focus or None,
-            )
-            logger.info("CrewAI kickoff for run %s (target=%s)", run.id, run.target)
-            result = crew.kickoff()
+            try:
+                result = engine.run_hunt(run=run, keys_provider=keys, callback=callback)
+            except NoLLMKeyError:
+                callback("hunt_error", {"error": "No LLM API key configured"})
+                run.status = RunStatus.FAILED
+                run.error_message = "No LLM API key configured"
+                run.save(update_fields=["status", "error_message", "updated_at"])
+                return
 
-            report_md = bridge.report_markdown
-            for t_out in (getattr(result, "tasks_output", None) or []):
-                md = _extract_report_markdown(t_out)
-                if md and len(md) > len(report_md):
-                    report_md = md
-            md = _extract_report_markdown(result)
-            if md and len(md) > len(report_md):
-                report_md = md
-
-            # Capture LLM token usage + estimated cost from the crew result.
-            usage = getattr(result, "token_usage", None)
-            if usage is not None:
-                pt = int(getattr(usage, "prompt_tokens", 0) or 0)
-                ct = int(getattr(usage, "completion_tokens", 0) or 0)
-                run.prompt_tokens = pt
-                run.completion_tokens = ct
-                run.total_tokens = int(getattr(usage, "total_tokens", 0) or (pt + ct))
-                try:
-                    model = (keys.get_all() or {}).get("selected_model") or ""
-                except Exception:
-                    model = ""
-                run.cost_usd = estimate_cost_usd(model, pt, ct)
+            # Capture LLM token usage + estimated cost from the engine result.
+            if result.total_tokens or result.prompt_tokens or result.completion_tokens:
+                run.prompt_tokens = result.prompt_tokens
+                run.completion_tokens = result.completion_tokens
+                run.total_tokens = result.total_tokens or (
+                    result.prompt_tokens + result.completion_tokens
+                )
+                run.cost_usd = estimate_cost_usd(
+                    result.model, result.prompt_tokens, result.completion_tokens
+                )
 
             findings_count = run.findings.count()
-            completed = bridge.completed_agents
-            run.report_markdown = report_md
+            completed = result.completed_agents
+            run.report_markdown = result.report_markdown
             run.status = RunStatus.COMPLETED
             run.completed_at = timezone.now()
             run.messages = [

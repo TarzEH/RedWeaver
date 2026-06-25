@@ -273,3 +273,24 @@ class LLMFactory:
         # Fallback
         logger.warning("Unknown provider %s, using model string", provider)
         return model_name
+
+    # ------------------------------------------------------------------
+    # LangChain chat model (deepagents / LangGraph engine)
+    # ------------------------------------------------------------------
+
+    def build_langchain_chat_model(self, model_override: str | None = None) -> Any:
+        """Return a LangChain ``BaseChatModel`` for the deepagents engine.
+
+        Reuses ``create_crewai_llm`` (already returns a LangChain chat model for
+        every provider) but rejects the bare-string fallback: deepagents requires
+        a real chat model instance, so a missing provider package is a hard error
+        rather than a silently degraded model string.
+        """
+        llm = self.create_crewai_llm(model_override)
+        if isinstance(llm, str):
+            raise RuntimeError(
+                "deepagents requires a LangChain chat model, but the provider "
+                f"package for {self._resolve_provider(self._keys_repo.get_all())!r} "
+                "is not installed (got a model-name string)."
+            )
+        return llm

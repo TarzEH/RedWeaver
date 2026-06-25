@@ -242,6 +242,11 @@ KNOWLEDGE_SERVICE_URL = env(
     "KNOWLEDGE_SERVICE_URL", default="http://localhost:8100"
 )
 
+# Multi-agent orchestration engine: "crewai" (default) or "deepagents".
+# See docs/refactor-deepagents-ragas.md — deepagents is migrated incrementally
+# behind this flag; CrewAI remains the default until parity is proven.
+HUNT_ENGINE = env("HUNT_ENGINE", default="crewai").lower()
+
 # ----------------------------------------------------------------------------
 # KB embedding provider (pgvector RAG) — pick where the vectors come from.
 #   openai      -> OpenAI text-embedding-3-small (1536 dims, needs an API key)

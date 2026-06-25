@@ -9,7 +9,6 @@ from django.utils import timezone
 from apps.accounts.keys import keys_provider_for_user
 from apps.observability.publisher import publish
 
-from .crew_factory import _build_crewai_llm
 from .models import Run
 
 logger = logging.getLogger(__name__)
@@ -25,12 +24,13 @@ def generate_offsec_playbook(self, run_id: str) -> None:
     run.save(update_fields=["offsec_status", "updated_at"])
     publish(str(run.id), "offsec_start", {"agent": "offsec"})
 
-    from redweaver_engine.crews.offsec import build_offsec_crew
     from redweaver_engine.llm_factory import LLMFactory
     from redweaver_engine.tools.instrumentation import run_context
     from redweaver_engine.tools.registry import ToolRegistry
 
     from apps.findings.serializers import FindingSerializer
+
+    from .engines import NoLLMKeyError, get_hunt_engine
 
     kp = keys_provider_for_user(run.created_by)
     lf = LLMFactory(kp)
@@ -41,32 +41,34 @@ def generate_offsec_playbook(self, run_id: str) -> None:
         return
 
     keys = kp.get_all()
-    llm = _build_crewai_llm(lf, keys)
+    # Research gathering is engine-agnostic data prep (KB + web + CVE dossier).
     registry = ToolRegistry(
         virustotal_api_key=keys.get("virustotal_api_key"),
         urlscan_api_key=keys.get("urlscan_api_key"),
     )
     findings = FindingSerializer(run.findings.all(), many=True).data
+    engine = get_hunt_engine()
 
     with run_context(str(run.id), "offsec"):
         try:
             publish(str(run.id), "offsec_research",
                     {"agent": "offsec", "msg": "researching knowledge base + web + CVEs"})
             research_md = gather_research(registry, run.target or "", findings)
-            crew = build_offsec_crew(
-                llm=llm,
-                registry=registry,
-                target=run.target or "",
+            md = engine.run_offsec(
+                run=run,
+                keys_provider=kp,
                 findings=findings,
-                run_id=str(run.id),
-                research_context=research_md,
+                research_md=research_md,
+                callback=lambda et, data: publish(str(run.id), et, data),
             )
-            result = crew.kickoff()
-            md = (getattr(result, "raw", None) or str(result) or "").strip()
             run.offsec_markdown = md
             run.offsec_status = "completed"
             run.save(update_fields=["offsec_markdown", "offsec_status", "updated_at"])
             publish(str(run.id), "offsec_complete", {"agent": "offsec", "length": len(md)})
+        except NoLLMKeyError:
+            run.offsec_status = "failed"
+            run.save(update_fields=["offsec_status", "updated_at"])
+            publish(str(run.id), "offsec_error", {"error": "No LLM API key configured"})
         except Exception as exc:  # noqa: BLE001
             logger.exception("offsec playbook failed for %s", run_id)
             run.offsec_status = "failed"
