@@ -219,17 +219,28 @@ Selection: `settings.HUNT_ENGINE` (env `HUNT_ENGINE`, default `crewai`).
 |-------|--------|-------|
 | 0 — engine seam + `HUNT_ENGINE` flag | **Done** | `apps/hunts/engines/`; `execute_run`/offsec delegate. CrewAI default — no behavior change. Compile-checked. |
 | 1 — LangChain tool adapter + LLM builder | **Done** | `tools/langchain_adapter.py` (ports `_run` verbatim); `LLMFactory.build_langchain_chat_model`. Compile-checked. |
-| 2 — offsec on deepagents | **Partial** | `DeepAgentsEngine.run_offsec` implemented + **VERIFY**-marked; needs a stack run against the pinned deepagents version. |
-| 3 — bug_hunt LangGraph DAG | **Not started** | `DeepAgentsEngine.run_hunt` raises NotImplemented. The big piece — must be built/validated on a running stack, not offline. |
-| 4 — parity validation + default flip | **Not started** | Depends on Phase 3. |
+| 2 — offsec on deepagents | **Done (unverified)** | `DeepAgentsEngine.run_offsec` implemented + **VERIFY**-marked; needs a stack run against the pinned deepagents version. |
+| 3 — bug_hunt LangGraph DAG | **Done (unverified)** | `crews/bug_hunt/graph_engine.py` + `graph_bridge.py`; `DeepAgentsEngine.run_hunt` wired. DAG planner (`plan_dag`) unit-verified offline across web/host/ssh/ATT&CK-narrowed/no-exploit selections (ordering, reachability, fan-out/in, no dead-ends). deepagents/langgraph invoke paths are **VERIFY**-marked. |
+| 4 — parity validation + default flip | **Pending stack** | Inherently runtime: side-by-side CrewAI vs deepagents on web/host/ssh targets. Procedure in §5. Not flipped — CrewAI stays default. |
 | 5 — Ragas eval harness | **Done** | `apps/knowledge/eval/` + `eval_kb_ragas` command + golden set. Reuses multi-provider LLM + offline embeddings. Compile-checked; needs a stack run to validate scores. |
-| 6 — remove CrewAI | **Not started** | Follow-up after deepagents is the proven default. |
+| 6 — remove CrewAI | **Intentionally not done** | Removing the fallback before parity is proven would break the default engine and contradicts the agreed incremental plan. Strictly a follow-up once deepagents is the validated default. |
 
-**Verification debt (no local stack here):** everything is compile-checked, but
-nothing has been run against Postgres + the live libraries. Before merging beyond
-the foundation, run in Docker: `docker compose up --build`, then
-`python manage.py eval_kb_ragas --no-generation` (retrieval metrics, cheapest),
-and a CrewAI hunt to confirm Phase 0 didn't regress the default path.
+**Known gaps in the deepagents hunt engine (Phase 3):**
+- SSH + file-IO tools are CrewAI-specific; LangChain equivalents are a follow-up,
+  so SSH-target hunts are not yet at parity on this engine (the DAG wires the SSH
+  chain, but those nodes lack their tools).
+- `graph.invoke` is synchronous: the discovery batch (fuzzer ∥ vuln ∥ crawler ∥
+  web_search) is ordering-correct but may not run truly concurrently — wall-clock
+  parallelism likely needs the async (`ainvoke`) path. Ordering is preserved.
+- deepagents API specifics (`create_deep_agent` kwargs, structured-output location,
+  `usage_metadata` shape) are `VERIFY`-marked and must be checked against the pin.
+
+**Verification debt (no local stack here):** everything is compile-checked and the
+DAG planner is unit-verified, but nothing ran against Postgres + the live
+libraries. Before relying on the deepagents engine: `docker compose up --build`,
+then with `HUNT_ENGINE=deepagents` run a hunt on a safe web target and compare the
+findings/report/observability timeline to a CrewAI run; also
+`python manage.py eval_kb_ragas --no-generation` as the RAG regression guard.
 
 ## 9. Rollback
 Per-phase: `HUNT_ENGINE=crewai` restores CrewAI instantly (Phases 0–4). The branch

@@ -48,11 +48,73 @@ class DeepAgentsEngine(HuntEngine):
         return lf.build_langchain_chat_model()
 
     def run_hunt(self, *, run: Any, keys_provider: Any, callback: EventCallback) -> HuntResult:
-        raise NotImplementedError(
-            "deepagents bug-hunt engine (LangGraph DAG) is Phase 3 — not yet "
-            "implemented. Set HUNT_ENGINE=crewai. See "
-            "docs/refactor-deepagents-ragas.md."
+        from redweaver_engine.crews.bug_hunt.graph_bridge import LangGraphHuntBridge
+        from redweaver_engine.crews.bug_hunt.graph_engine import GraphHuntEngine
+        from redweaver_engine.huntflow_types import HuntflowTree
+        from redweaver_engine.tools.instrumentation import run_context
+        from redweaver_engine.tools.registry import ToolRegistry
+
+        keys = keys_provider.get_all()
+        llm = self._chat_model(keys_provider)
+        registry = ToolRegistry(
+            virustotal_api_key=keys.get("virustotal_api_key"),
+            urlscan_api_key=keys.get("urlscan_api_key"),
         )
+
+        ssh_config = run.ssh_config if isinstance(run.ssh_config, dict) else None
+        attack_techniques = run.attack_focus or None
+
+        # Pre-hunt ATT&CK focus directive (same derivation as the CrewAI factory).
+        attack_focus = ""
+        if attack_techniques:
+            from redweaver_engine.crews.bug_hunt.attack_planning import plan_from_techniques
+            from redweaver_engine.crews.bug_hunt.selection import (
+                TARGET_AGENT_MAP,
+                select_agent_names,
+            )
+
+            ttype, _sel = select_agent_names(
+                run.target or "", run.objective or "comprehensive",
+                ssh_config, attack_techniques=attack_techniques,
+            )
+            attack_focus = plan_from_techniques(
+                attack_techniques,
+                list(TARGET_AGENT_MAP.get(ttype, TARGET_AGENT_MAP["web"])),
+                ssh_config,
+            )["focus"]
+
+        tree = HuntflowTree(str(run.id), run.target or "")
+        bridge = LangGraphHuntBridge(tree=tree, event_callback=callback, run_id=str(run.id))
+        callback("graph_state", {
+            "current_node": "orchestrator", "action": "start",
+            "active_nodes": ["orchestrator"], "completed_nodes": [],
+        })
+
+        engine = GraphHuntEngine(llm=llm, registry=registry, run_id=str(run.id))
+        with run_context(str(run.id), None):
+            logger.info("LangGraph hunt for run %s (target=%s)", run.id, run.target)
+            out = engine.run(
+                target=run.target or "",
+                scope=run.scope or "",
+                objective=run.objective or "comprehensive",
+                ssh_config=ssh_config,
+                attack_techniques=attack_techniques,
+                attack_focus=attack_focus,
+                bridge=bridge,
+            )
+
+        result = HuntResult(
+            report_markdown=out["report_markdown"],
+            prompt_tokens=out["prompt_tokens"],
+            completion_tokens=out["completion_tokens"],
+            total_tokens=out["prompt_tokens"] + out["completion_tokens"],
+            completed_agents=out["completed_agents"],
+        )
+        try:
+            result.model = (keys or {}).get("selected_model") or ""
+        except Exception:
+            result.model = ""
+        return result
 
     def run_offsec(
         self,
