@@ -4,15 +4,14 @@ Selected via ``HUNT_ENGINE=deepagents``. Inert by default (CrewAI is the
 default), so this code never runs unless explicitly enabled.
 
 STATUS (per docs/refactor-deepagents-ragas.md):
-  * ``run_offsec`` — implemented (single deep agent). Marked VERIFY: the
-    deepagents API is pre-1.0 and churns; confirm the create_deep_agent
-    signature (``system_prompt`` vs legacy ``instructions``) and the output
-    message shape against the *pinned* version before relying on it.
-  * ``run_hunt`` — NOT YET IMPLEMENTED. This is Phase 3: an explicit LangGraph
-    StateGraph of deepagents sub-agents (nodes) wired into the deterministic
-    recon → {fuzzer ∥ vuln ∥ crawler} → exploit → [ssh] → report DAG, with the
-    LangGraphEventBridge mapping stream events to the observability sinks. It
-    must be built and validated against a running stack, not guessed offline.
+  * ``run_offsec`` — implemented (single deep agent). The create_deep_agent
+    signature (incl. ``system_prompt``) is CONFIRMED against deepagents 0.6.12;
+    the final output-message shape is still verified at runtime (live model call).
+  * ``run_hunt`` — implemented via the LangGraph StateGraph of deepagents
+    sub-agents (graph_engine.py): the deterministic recon → {fuzzer ∥ vuln ∥
+    crawler} → exploit → [ssh] → report DAG, with LangGraphHuntBridge mapping
+    node lifecycle to the observability sinks. Needs a live-stack run to validate
+    end-to-end (findings/report/token accounting).
 """
 from __future__ import annotations
 

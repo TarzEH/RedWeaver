@@ -245,12 +245,22 @@ preinstall CPU torch for a smaller image.
 - deepagents API specifics (`create_deep_agent` kwargs, structured-output location,
   `usage_metadata` shape) are `VERIFY`-marked and must be checked against the pin.
 
-**Verification debt (no local stack here):** everything is compile-checked and the
-DAG planner is unit-verified, but nothing ran against Postgres + the live
-libraries. Before relying on the deepagents engine: `docker compose up --build`,
-then with `HUNT_ENGINE=deepagents` run a hunt on a safe web target and compare the
-findings/report/observability timeline to a CrewAI run; also
-`python manage.py eval_kb_ragas --no-generation` as the RAG regression guard.
+**Docker validation done so far:**
+- `pip install --dry-run` of the full requirements **resolves cleanly with no
+  crewai** (deepagents-0.6.12, langchain-1.3.11, langgraph-1.2.6, ragas-0.4.3).
+- `deepagents 0.6.12` `create_deep_agent` signature **introspected and confirmed**:
+  `(model, tools, *, system_prompt, response_format, …) -> CompiledStateGraph` —
+  every kwarg the engine uses is correct (notably `system_prompt`, not the legacy
+  `instructions`). `langgraph.graph` (StateGraph/START/END) and
+  `langchain_core.tools` (StructuredTool/tool) import cleanly.
+- Backend `py_compile` + `compileall` pass with zero residual `crewai` imports.
+
+**Still owed (needs a running stack, not doable offline here):** an actual hunt
+with `HUNT_ENGINE=deepagents` against a safe target to validate end-to-end —
+findings/report extraction, the structured-output result shape, token accounting,
+and the observability timeline — plus `python manage.py eval_kb_ragas
+--no-generation` as the RAG regression guard. `python manage.py inspect_hunt_graph
+--target …` validates the DAG wiring cheaply (no LLM).
 
 ## 9. Rollback
 Per-phase: `HUNT_ENGINE=crewai` restores CrewAI instantly (Phases 0–4). The branch

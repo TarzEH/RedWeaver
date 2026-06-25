@@ -9,10 +9,14 @@ so ordering is guaranteed (LangGraph supersteps fan-out/fan-in); the
 LangGraphHuntBridge maps node lifecycle + structured output to the same events
 and findings the CrewAI path produced.
 
-VERIFY (deepagents is pre-1.0, API churns): confirm against the pinned version —
-  * create_deep_agent kwarg names (`system_prompt`/`response_format`),
-  * the structured-output location in the invoke result,
-  * AIMessage.usage_metadata shape (token accounting),
+API status (validated against deepagents 0.6.12 in Docker):
+  * create_deep_agent(model, tools, system_prompt, response_format) — CONFIRMED
+    (signature introspected; `system_prompt` is correct, not legacy `instructions`).
+  * langgraph StateGraph/START/END + langchain_core StructuredTool/tool — CONFIRMED.
+VERIFY at runtime (needs a live model call):
+  * the structured-output location in the invoke result (we read `structured_response`
+    first, then fall back to the last message — see _coerce_output),
+  * AIMessage.usage_metadata shape (token accounting; standard LangChain convention),
   * sync .invoke superstep concurrency (true wall-clock parallelism of the
     discovery batch likely needs the async path — ordering holds either way).
 KNOWN GAP: SSH + file-IO tools are CrewAI-specific; LangChain equivalents are a
