@@ -335,8 +335,6 @@ def run_ask(request, run_id):
     from apps.findings.serializers import FindingSerializer
     from redweaver_engine.llm_factory import LLMFactory
 
-    from .crew_factory import _build_crewai_llm
-
     kp = keys_provider_for_user(run.created_by or request.user)
     lf = LLMFactory(kp)
     if not lf.has_api_key():
@@ -353,8 +351,8 @@ def run_ask(request, run_id):
         f"QUESTION: {question}"
     )
     try:
-        llm = _build_crewai_llm(lf, kp.get_all())
-        answer = llm.call([{"role": "user", "content": prompt}])
+        llm = lf.build_langchain_chat_model()
+        answer = llm.invoke(prompt).content
     except Exception as exc:  # noqa: BLE001
         return Response({"error": str(exc)}, status=500)
     return Response({"answer": str(answer), "question": question})

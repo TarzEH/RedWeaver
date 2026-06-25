@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from typing import Type
 
-from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 
@@ -18,7 +17,7 @@ class FileReaderInput(BaseModel):
     end_line: int = Field(default=0, description="Stop reading at this line (0 = end of file).")
 
 
-class FileReaderTool(BaseTool):
+class FileReaderTool:
     """Read the contents of a file.
 
     Supports reading full files or specific line ranges.

@@ -1,1 +1,1 @@
-"""CrewAI crew packages (declarative config + builders)."""
+"""Agent crew packages (deepagents/LangGraph DAG + declarative config)."""

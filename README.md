@@ -22,7 +22,7 @@
   <img src="https://img.shields.io/badge/postgres-pgvector-336791?style=flat-square" alt="PostgreSQL" />
   <img src="https://img.shields.io/badge/react-18-61dafb?style=flat-square" alt="React" />
   <img src="https://img.shields.io/badge/docker-required-2496ed?style=flat-square" alt="Docker" />
-  <img src="https://img.shields.io/badge/CrewAI-multi--agent-412991?style=flat-square" alt="CrewAI" />
+  <img src="https://img.shields.io/badge/deepagents-LangGraph-412991?style=flat-square" alt="deepagents on LangGraph" />
 </p>
 
 ---
@@ -225,7 +225,7 @@ RedWeaver supports multiple LLM providers. Configure via `.env` or the **Setting
 | `REDIS_URL` / `CHANNEL_LAYERS_URL` / `CELERY_BROKER_URL` | No | Redis roles split by DB — `/0` pub/sub, `/1` Channels, `/2` Celery (composed by Compose) |
 | `CSRF_TRUSTED_ORIGINS` / `ALLOWED_HOSTS` | No | Django host/CSRF allow-lists (defaults cover localhost) |
 | `SCREENSHOTS_DIR` | No | Playwright screenshot path under the shared media volume |
-| `HUNT_ENGINE` | No | Orchestration engine: `crewai` (default) or `deepagents` (LangGraph DAG, in migration — see [docs/refactor-deepagents-ragas.md](docs/refactor-deepagents-ragas.md)) |
+| `HUNT_ENGINE` | No | Orchestration engine — `deepagents` (default, and currently the only engine; LangGraph DAG). CrewAI was removed — see [docs/refactor-deepagents-ragas.md](docs/refactor-deepagents-ragas.md) |
 | `KB_EMBED_PROVIDER` | No | KB embedding provider: `openai` (default) or `huggingface` (offline). Also editable in the **Settings** UI |
 | `KB_EMBED_MODEL` / `KB_EMBED_DIM` / `KB_EMBED_DEVICE` | No | Embedding model, vector dimension (auto-detected on re-index), and device (`cpu`/`cuda`, HF only) |
 
@@ -285,8 +285,8 @@ RedWeaver/
 - **Django + Postgres system of record** — Django (DRF + Channels) serves the API and WebSocket; **PostgreSQL holds all state** (runs, findings, observability, KB vectors). Redis is transport only (Channels layer + Celery broker + pub/sub).
 - **Framework-agnostic engine** — the crews, tools, reports, and LLM factory live in `redweaver_engine/` with zero Django imports, wired to persistence through a pluggable instrumentation seam so the engine stays importable and testable on its own.
 - **Out-of-process execution** — the hunt engine runs in a **Celery worker**, not the ASGI loop, so long hunts and synchronous ORM writes never block the web server.
-- **Pluggable orchestration engine** (`HUNT_ENGINE`) — hunts go through a `HuntEngine` seam (`apps/hunts/engines/`). The default `crewai` engine builds a `CrewFactory` crew from YAML agent/task definitions (`Process.sequential` with `async_execution` **parallel batches** — e.g. fuzzer + vuln scanner after recon). An in-migration `deepagents` engine wires the same agents into an explicit **LangGraph DAG** of `deepagents` sub-agents, preserving the deterministic order, the parallel batch, and full observability. The workflow **graph** is dependency-oriented, not a timeline.
-- **End-to-end observability** — every tool execution (with **raw stdout/stderr**), agent step, transition, screenshot, and event is persisted and replayable via Django Admin and the `/debug/<run_id>` UI — identical across both engines.
+- **deepagents on a LangGraph DAG** — hunts go through a `HuntEngine` seam (`apps/hunts/engines/`). Each agent is a `deepagents` sub-agent (YAML role/goal/backstory as its prompt, registry tools, a Pydantic `response_format`) wired as a node into an explicit **LangGraph `StateGraph`**: recon → {fuzzer ∥ vuln_scanner ∥ crawler ∥ web_search} → exploit_analyst → [privesc → tunnel_pivot → post_exploit] → report_writer. The edges guarantee ordering and the parallel batch; the workflow **graph** is dependency-oriented, not a timeline. (CrewAI was the original engine — it was removed because its langchain pin is incompatible with deepagents; see [docs/refactor-deepagents-ragas.md](docs/refactor-deepagents-ragas.md).)
+- **End-to-end observability** — every tool execution (with **raw stdout/stderr**), agent step, transition, screenshot, and event is persisted and replayable via Django Admin and the `/debug/<run_id>` UI.
 - **pgvector RAG, configurable embeddings** — the knowledge base is embedded into Postgres and queried with cosine distance + keyword re-rank. The embedding provider is editable from the **Settings** UI: OpenAI (`text-embedding-3-small`, 1536-dim) or a **fully-offline local HuggingFace** model (no API key); the vector column is auto-sized and re-indexed on change. The legacy Chroma microservice remains only as a fallback. Quality is tracked with `eval_kb` (hit@k/MRR) and a **Ragas** harness (`eval_kb_ragas`).
 - **OffSec playbook** — an offensive-security agent turns findings into per-finding attack steps (commands + MITRE ATT&CK), grounded in the pgvector KB.
 - **Multi-provider LLM factory** — auto-detects available keys (OpenAI, Anthropic, Google Gemini, Ollama) with runtime model selection (Settings UI or env).

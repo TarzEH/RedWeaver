@@ -9,16 +9,20 @@ from .base import EventCallback, HuntEngine, HuntResult, NoLLMKeyError
 def get_hunt_engine(name: str | None = None) -> HuntEngine:
     """Return the configured hunt engine.
 
-    Resolution: explicit ``name`` arg → ``settings.HUNT_ENGINE`` → "crewai".
+    CrewAI was removed (it required langchain <0.4, incompatible with deepagents'
+    langchain 1.x — see docs/refactor-deepagents-ragas.md), so deepagents is the
+    only engine. ``HUNT_ENGINE`` is honored for forward-compat but only
+    ``deepagents`` is implemented.
     """
-    name = (name or getattr(settings, "HUNT_ENGINE", "crewai") or "crewai").lower()
-    if name == "deepagents":
-        from .deepagents_engine import DeepAgentsEngine
+    name = (name or getattr(settings, "HUNT_ENGINE", "deepagents") or "deepagents").lower()
+    if name not in ("deepagents", ""):
+        import logging
+        logging.getLogger(__name__).warning(
+            "HUNT_ENGINE=%s is not available; using deepagents", name
+        )
+    from .deepagents_engine import DeepAgentsEngine
 
-        return DeepAgentsEngine()
-    from .crewai_engine import CrewAIEngine
-
-    return CrewAIEngine()
+    return DeepAgentsEngine()
 
 
 __all__ = [

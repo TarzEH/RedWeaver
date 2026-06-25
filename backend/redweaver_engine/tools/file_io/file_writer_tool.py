@@ -13,7 +13,6 @@ import shutil
 from pathlib import Path
 from typing import Type
 
-from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from redweaver_engine.tools.file_io.safety import PathValidator
@@ -38,7 +37,7 @@ class FileWriterInput(BaseModel):
     )
 
 
-class FileWriterTool(BaseTool):
+class FileWriterTool:
     """Write or modify files in the project.
 
     Supports three modes:

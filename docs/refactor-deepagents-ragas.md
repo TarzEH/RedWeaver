@@ -37,10 +37,13 @@ behind a feature flag, with CrewAI kept working until parity is proven.
    sub-agent node. Not a pure LLM-driven orchestrator — RedWeaver needs
    guaranteed ordering, the parallel fuzz/scan batch, and a deterministic
    observability timeline.
-2. **Migration mode:** **incremental, feature-flagged.** Pin a `deepagents`
-   version; keep CrewAI behind `HUNT_ENGINE=crewai` (default) while building
-   `HUNT_ENGINE=deepagents`. Migrate **offsec first** (single agent), then
-   **bug_hunt**. Flip the default only after parity.
+2. **Migration mode (REVISED after Docker validation):** the original plan kept
+   CrewAI behind a flag, but a `pip` resolution proved **CrewAI and deepagents
+   cannot coexist** — `deepagents 0.6` requires **langchain 1.x** while
+   `crewai < 1.0` requires **langchain < 0.4**, and the only resolution force-
+   upgrades CrewAI to 1.14 (a breaking major that would break the existing
+   engine). Decision: **drop CrewAI entirely** and make deepagents the sole
+   engine. The `HuntEngine` seam + `HUNT_ENGINE` flag are kept for forward-compat.
 3. **Sequencing:** **deepagents first, then Ragas.**
 
 ---
@@ -221,9 +224,16 @@ Selection: `settings.HUNT_ENGINE` (env `HUNT_ENGINE`, default `crewai`).
 | 1 — LangChain tool adapter + LLM builder | **Done** | `tools/langchain_adapter.py` (ports `_run` verbatim); `LLMFactory.build_langchain_chat_model`. Compile-checked. |
 | 2 — offsec on deepagents | **Done (unverified)** | `DeepAgentsEngine.run_offsec` implemented + **VERIFY**-marked; needs a stack run against the pinned deepagents version. |
 | 3 — bug_hunt LangGraph DAG | **Done (unverified)** | `crews/bug_hunt/graph_engine.py` + `graph_bridge.py`; `DeepAgentsEngine.run_hunt` wired. DAG planner (`plan_dag`) unit-verified offline across web/host/ssh/ATT&CK-narrowed/no-exploit selections (ordering, reachability, fan-out/in, no dead-ends). deepagents/langgraph invoke paths are **VERIFY**-marked. |
-| 4 — parity validation + default flip | **Pending stack** | Inherently runtime: side-by-side CrewAI vs deepagents on web/host/ssh targets. Procedure in §5. Not flipped — CrewAI stays default. |
+| 4 — parity validation + default flip | **Default flipped** | `HUNT_ENGINE` now defaults to `deepagents` (CrewAI removed). Side-by-side parity is moot; live validation of the deepagents engine on web/host/ssh targets is still owed (no stack here). |
 | 5 — Ragas eval harness | **Done** | `apps/knowledge/eval/` + `eval_kb_ragas` command + golden set. Reuses multi-provider LLM + offline embeddings. Compile-checked; needs a stack run to validate scores. |
-| 6 — remove CrewAI | **Intentionally not done** | Removing the fallback before parity is proven would break the default engine and contradicts the agreed incremental plan. Strictly a follow-up once deepagents is the validated default. |
+| 6 — remove CrewAI | **Done** | Deleted `builder.py`, `offsec.py`, `crewai_adapter.py`, `knowledge_query_tool.py`, `crew_factory.py`, `crewai_engine.py`; converted SSH/file-IO tools off `crewai.tools.BaseTool`; rewired `knowledge_ask` / hunt Q&A to LangChain chat models; removed `crewai`/`crewai-tools` from requirements. Forced by the dependency conflict (see Decision 2). |
+
+**Dependency note (validated in Docker):** `crewai` + `deepagents` is
+`ResolutionImpossible`. With CrewAI removed the set resolves on langchain 1.x /
+langgraph 1.2.x. `langgraph` must be pinned `>=1.2.5,<1.3` (deepagents/langchain
+1.3 constraint); the langchain provider packages move to their 1.x lines. Heads-up:
+`sentence-transformers` (HF embeddings + Ragas) still pulls **CUDA torch (~GB)** —
+preinstall CPU torch for a smaller image.
 
 **Known gaps in the deepagents hunt engine (Phase 3):**
 - SSH + file-IO tools are CrewAI-specific; LangChain equivalents are a follow-up,

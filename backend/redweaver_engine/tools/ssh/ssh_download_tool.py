@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from typing import Type
 
-from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from redweaver_engine.tools.ssh.session_manager import SSHSessionManager
@@ -23,7 +22,7 @@ class SSHDownloadInput(BaseModel):
     port: int = Field(default=22, description="SSH port number.")
 
 
-class SSHFileDownloadTool(BaseTool):
+class SSHFileDownloadTool:
     """Download a file from a remote host via SFTP.
 
     Useful for retrieving flags, logs, configuration files,

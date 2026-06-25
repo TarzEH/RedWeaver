@@ -9,7 +9,6 @@ from __future__ import annotations
 import json
 from typing import Any, Type
 
-from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from redweaver_engine.tools.ssh.session_manager import SSHSessionManager
@@ -27,7 +26,7 @@ class SSHCommandInput(BaseModel):
     timeout: int = Field(default=60, description="Command execution timeout in seconds.")
 
 
-class SSHCommandTool(BaseTool):
+class SSHCommandTool:
     """Execute commands on a remote host via SSH.
 
     Returns JSON with stdout, stderr, and exit_code.

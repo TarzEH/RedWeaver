@@ -10,7 +10,6 @@ import json
 import threading
 from typing import Type
 
-from crewai.tools import BaseTool
 from pydantic import BaseModel, Field, PrivateAttr
 
 from redweaver_engine.tools.ssh.session_manager import SSHSessionManager
@@ -33,7 +32,7 @@ class SSHTunnelInput(BaseModel):
     port: int = Field(default=22, description="SSH server port.")
 
 
-class SSHTunnelTool(BaseTool):
+class SSHTunnelTool:
     """Establish SSH tunnels for port forwarding and network pivoting.
 
     Supports:

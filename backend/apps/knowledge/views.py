@@ -108,7 +108,6 @@ def knowledge_ask(request):
         return Response({"answer": "No relevant knowledge-base content found.", "sources": []})
 
     from apps.accounts.keys import keys_provider_for_user
-    from apps.hunts.crew_factory import _build_crewai_llm
     from redweaver_engine.llm_factory import LLMFactory
 
     kp = keys_provider_for_user(request.user)
@@ -124,8 +123,8 @@ def knowledge_ask(request):
         f"KNOWLEDGE BASE:\n{context}\n\nQUESTION: {question}"
     )
     try:
-        llm = _build_crewai_llm(lf, kp.get_all())
-        answer = llm.call([{"role": "user", "content": prompt}])
+        llm = lf.build_langchain_chat_model()
+        answer = llm.invoke(prompt).content
     except Exception as exc:  # noqa: BLE001
         return Response({"error": str(exc)}, status=500)
     sources = sorted({h["file"] for h in hits})

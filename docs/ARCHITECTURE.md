@@ -46,11 +46,11 @@ Backend Python layout:
 | Package | Role |
 |---------|------|
 | `redweaver/` | Django project: `settings/{base,dev,prod,test}`, `asgi.py` (ProtocolTypeRouter: HTTP + WebSocket), `wsgi.py`, `celery.py`, `urls.py` |
-| `redweaver_engine/` | **Framework-agnostic** engine (zero `from app.*`/`from apps.*` imports): `crews/` (CrewAI bug-hunt + offsec **and** the deepagents/LangGraph DAG engine in `crews/bug_hunt/graph_engine.py`), `tools/` (CLI wrappers + `crewai_adapter` + `langchain_adapter` + instrumentation seam), `reports/`, `clients/`, `llm_factory.py` |
+| `redweaver_engine/` | **Framework-agnostic** engine (zero `from app.*`/`from apps.*` imports): `crews/bug_hunt/` (config, schemas, selection, ATT&CK planning, and the deepagents/LangGraph DAG in `graph_engine.py` + `graph_bridge.py`), `tools/` (CLI wrappers + `langchain_adapter` + instrumentation seam), `reports/`, `clients/`, `llm_factory.py` |
 | `apps/common/` | `TimeStampedUUIDModel` (UUID PK + created/updated), pagination, permissions, encrypted field |
 | `apps/accounts/` | Custom `User` (`AUTH_USER_MODEL`) + encrypted `ApiKeyVault` + JWT auth + settings/keys |
 | `apps/workspaces/` | `Workspace` |
-| `apps/hunts/` | `Session`, `Target`, `Run` + `tasks.py` (Celery `execute_run`) + `offsec_tasks.py` + `crew_factory.py` + `engines/` (pluggable `HuntEngine`: CrewAI / deepagents) + `consumers.py` (Channels) |
+| `apps/hunts/` | `Session`, `Target`, `Run` + `tasks.py` (Celery `execute_run`) + `offsec_tasks.py` + `engines/` (`HuntEngine` → `DeepAgentsEngine`) + `consumers.py` (Channels) |
 | `apps/findings/` | `Finding` (+ confidence / exploitability / CVE / evidence) |
 | `apps/observability/` | The debug core — see below |
 | `apps/knowledge/` | **Postgres pgvector RAG**: `KbChunk` (configurable-dim `VectorField`) + `KbEmbeddingConfig` (UI-editable provider/model), `embeddings.py` (OpenAI **or** offline HuggingFace), `chunking.py`, `ingest.py`, `search.py`, `tasks.py` (re-index), `ingest_kb`/`eval_kb`/`eval_kb_ragas` commands, `eval/` (Ragas harness) |
@@ -59,25 +59,31 @@ Backend Python layout:
 
 ---
 
-## Orchestration engine — pluggable (`HUNT_ENGINE`)
+## Orchestration engine — deepagents on LangGraph
 
-The multi-agent orchestrator is selectable behind a flag so it can be migrated
-incrementally. `apps/hunts/engines/` defines a `HuntEngine` protocol
-(`run_hunt` / `run_offsec` → a normalized `HuntResult`); `execute_run` and
-`generate_offsec_playbook` call it instead of an orchestrator directly.
+`apps/hunts/engines/` defines a `HuntEngine` protocol (`run_hunt` / `run_offsec`
+→ a normalized `HuntResult`); `execute_run` and `generate_offsec_playbook` call
+it rather than an orchestrator directly. There is a single engine,
+**`DeepAgentsEngine`** (`HUNT_ENGINE=deepagents`, the default and only value):
 
-| `HUNT_ENGINE` | Engine | How it works |
-|---------------|--------|--------------|
-| `crewai` (default) | `CrewAIEngine` | The mature path: `CrewFactory` builds a CrewAI crew (YAML agents/tasks, `Process.sequential` + async batching), `crew.kickoff()`. |
-| `deepagents` | `DeepAgentsEngine` | `crews/bug_hunt/graph_engine.py` builds an explicit **LangGraph `StateGraph`** of `deepagents` sub-agents — each agent a node (YAML prompt, registry tools via `langchain_adapter`, Pydantic schema as `response_format`), edges encoding the deterministic DAG: recon → {fuzzer ∥ vuln_scanner ∥ crawler ∥ web_search} → exploit_analyst → [privesc → tunnel_pivot → post_exploit] → report_writer. |
+`crews/bug_hunt/graph_engine.py` builds an explicit **LangGraph `StateGraph`** of
+`deepagents` sub-agents — each agent a node (YAML role/goal/backstory prompt,
+registry tools wrapped via `langchain_adapter`, its Pydantic schema as
+`response_format`). Edges encode the deterministic DAG: recon → {fuzzer ∥
+vuln_scanner ∥ crawler ∥ web_search} → exploit_analyst → [privesc →
+tunnel_pivot → post_exploit] → report_writer. The pure planner (`plan_dag`) is
+unit-tested across selection scenarios.
 
-Both engines feed the **same** observability sinks: tool calls go through an
-adapter (`crewai_adapter` / `langchain_adapter`) that emits identical
-`tool_call`/`tool_result` events + `ToolExecution` rows, and an event bridge
-(`callbacks.CrewAIEventBridge` / `graph_bridge.LangGraphHuntBridge`) maps
-agent lifecycle + structured output to the same findings/events. The deepagents
-migration is tracked in [refactor-deepagents-ragas.md](refactor-deepagents-ragas.md);
-CrewAI remains the default until parity is proven.
+Tool calls go through `langchain_adapter` (same SSRF guard + `tool_call`/
+`tool_result` events + `ToolExecution` rows as before); `graph_bridge.
+LangGraphHuntBridge` maps node lifecycle + structured output to findings/events,
+reusing the extraction helpers in `crews/bug_hunt/callbacks.py`.
+
+> **CrewAI was removed.** It required langchain < 0.4, incompatible with
+> deepagents' langchain 1.x (a `pip` resolution proved the only fix force-upgrades
+> CrewAI to a breaking 1.x). The migration + the dependency analysis are in
+> [refactor-deepagents-ragas.md](refactor-deepagents-ragas.md). The `HUNT_ENGINE`
+> flag is retained for forward-compat.
 
 ---
 
