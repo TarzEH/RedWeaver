@@ -1,0 +1,231 @@
+@import "tailwindcss" layer(tailwind);
+
+@layer tailwind {
+  @theme {
+    /* Deep Navy palette */
+    --color-rw-bg: #0a0f1e;
+    --color-rw-elevated: #111827;
+    --color-rw-surface: #1e293b;
+    --color-rw-surface-hover: #263550;
+    --color-rw-input: #1e293b;
+    --color-rw-border: #334155;
+    --color-rw-border-subtle: #1e293b;
+
+    /* Text */
+    --color-rw-text: #f1f5f9;
+    --color-rw-muted: #94a3b8;
+    /* dim bumped from #64748b (~4:1, fails WCAG AA at small sizes) to ~5.4:1 */
+    --color-rw-dim: #8b9cb3;
+
+    /* Accent — Electric Blue */
+    --color-rw-accent: #3b82f6;
+    --color-rw-accent-hover: #60a5fa;
+    --color-rw-danger: #ef4444;
+    --color-rw-success: #10b981;
+    --color-rw-warning: #f59e0b;
+
+    /* Type families — Inter (UI) + JetBrains Mono (terminal/code/CVSS) */
+    --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
+      "Segoe UI", Roboto, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono",
+      Menlo, Consolas, monospace;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--color-rw-bg);
+  color: var(--color-rw-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }
+* { scrollbar-width: thin; scrollbar-color: #334155 transparent; }
+
+/* ── Selection ── */
+::selection { background: rgba(59, 130, 246, 0.3); }
+
+/* ── Focus ring ── */
+:focus-visible {
+  outline: 2px solid var(--color-rw-accent);
+  outline-offset: 2px;
+}
+
+/* ── Print: clean report (Save as PDF) ── */
+@media print {
+  :root, body { background: #fff !important; color: #111 !important; }
+  /* hide app chrome + interactive controls, keep the report */
+  aside, nav, .rw-no-print, .huntReportInfographic__header button { display: none !important; }
+  main { overflow: visible !important; }
+  .huntReportInfographic, .markdownRenderer, .attackPlaybook {
+    box-shadow: none !important; border: none !important; background: #fff !important; color: #111 !important;
+  }
+  .huntReportInfographic__md, .markdownRenderer * { color: #111 !important; }
+  pre, code { background: #f4f4f5 !important; color: #111 !important; }
+}
+
+/* ── Animations ── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes rw-shimmer {
+  100% { transform: translateX(100%); }
+}
+
+.animate-pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+.animate-spin { animation: spin 1s linear infinite; }
+.animate-fade-in { animation: fade-in 0.2s ease-out; }
+.animate-slide-in { animation: slide-in-right 0.25s ease-out; }
+.animate-scale-in { animation: scale-in 0.15s ease-out; }
+
+/* ── Skeleton shimmer ── */
+.rw-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-rw-surface);
+}
+.rw-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(148, 163, 184, 0.12),
+    transparent
+  );
+  animation: rw-shimmer 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rw-skeleton::after { animation: none; }
+}
+
+/* ── Markdown Renderer ── */
+.markdownRenderer {
+  @apply text-sm text-rw-muted leading-relaxed;
+}
+/* Generic element selectors + class-based selectors from MarkdownRenderer component */
+.markdownRenderer h1, .mdH1 { @apply text-xl font-bold text-rw-text mt-6 mb-3; }
+.markdownRenderer h2, .mdH2 { @apply text-lg font-semibold text-rw-text mt-5 mb-2; }
+.markdownRenderer h3, .mdH3 { @apply text-base font-semibold text-rw-text mt-4 mb-2; }
+.markdownRenderer h4, .mdH4 { @apply text-sm font-semibold text-rw-text mt-3 mb-1; }
+.markdownRenderer p { @apply mb-3; }
+.markdownRenderer strong { @apply font-semibold text-rw-text; }
+.markdownRenderer em { @apply italic; }
+.markdownRenderer a, .mdLink { @apply text-rw-accent hover:text-rw-accent-hover underline underline-offset-2; }
+.markdownRenderer hr, .mdHr { @apply border-rw-border my-4; }
+.markdownRenderer ul, .mdUl { @apply list-disc pl-5 mb-3 space-y-1; }
+.markdownRenderer ol, .mdOl { @apply list-decimal pl-5 mb-3 space-y-1; }
+.markdownRenderer li, .mdLi, .mdOlLi { @apply text-rw-muted; }
+.markdownRenderer blockquote, .mdBlockquote { @apply border-l-2 border-rw-accent/40 pl-4 py-1 my-3 text-rw-dim italic; }
+.markdownRenderer pre, .mdCodeBlock { @apply bg-rw-surface rounded-lg p-4 my-3 overflow-x-auto; }
+.markdownRenderer code { @apply font-mono text-xs; }
+.markdownRenderer pre code, .mdCodeBlock code { @apply text-rw-muted; }
+.mdInlineCode { @apply bg-rw-surface text-rw-accent px-1.5 py-0.5 rounded text-xs font-mono; }
+.markdownRenderer table, .mdTable { @apply w-full border-collapse my-3; }
+.markdownRenderer th, .mdTable th { @apply text-left text-xs font-medium text-rw-dim py-2 px-3 border-b border-rw-border; }
+.markdownRenderer td, .mdTable td { @apply text-sm text-rw-muted py-2 px-3 border-b border-rw-border-subtle; }
+
+/* Attack playbook — stages read as cards, commands as terminal blocks */
+.attackPlaybook .mdH1 { @apply text-rose-300 border-b border-rose-500/30 pb-2 mb-4; }
+.attackPlaybook .mdH2 { @apply text-rose-200 mt-6 mb-2 pl-3 py-1.5 border-l-4 border-rose-500/70 bg-rose-500/5 rounded-r; }
+.attackPlaybook .mdH3 { @apply text-rw-text mt-4 mb-1 font-semibold; }
+.attackPlaybook .mdCodeBlock, .attackPlaybook pre { @apply bg-black border border-emerald-500/25 rounded-md my-2; }
+.attackPlaybook .mdCodeBlock code, .attackPlaybook pre code { @apply text-emerald-300 leading-relaxed; }
+.attackPlaybook .mdLink { @apply text-cyan-400 underline; }
+.attackPlaybook strong { @apply text-rose-100; }
+
+/* Markdown: enhanced reading mode */
+.markdownRenderer--enhanced {
+  @apply text-base leading-relaxed max-w-3xl mx-auto;
+}
+.markdownRenderer--enhanced h1, .markdownRenderer--enhanced .mdH1 { @apply text-2xl mt-8 mb-4; }
+.markdownRenderer--enhanced h2, .markdownRenderer--enhanced .mdH2 { @apply text-xl mt-7 mb-3; }
+.markdownRenderer--enhanced h3, .markdownRenderer--enhanced .mdH3 { @apply text-lg mt-6 mb-2; }
+.markdownRenderer--enhanced h4, .markdownRenderer--enhanced .mdH4 { @apply text-base mt-5 mb-2; }
+.markdownRenderer--enhanced p { @apply mb-4; }
+.markdownRenderer--enhanced .mdTable { @apply text-sm; }
+
+/* Callouts (first line: **Note:** / **Tip:** / **Warning:** / **Important:**) */
+.markdownRenderer blockquote.mdCallout {
+  @apply border-l-0;
+}
+.markdownRenderer .mdCallout {
+  @apply rounded-lg border pl-4 pr-3 py-3 my-4 not-italic text-rw-muted;
+}
+.markdownRenderer .mdCallout strong:first-child { @apply text-rw-text; }
+.markdownRenderer .mdCallout--note {
+  @apply border-sky-500/35 bg-sky-500/10;
+}
+.markdownRenderer .mdCallout--tip {
+  @apply border-emerald-500/35 bg-emerald-500/10;
+}
+.markdownRenderer .mdCallout--warning {
+  @apply border-amber-500/40 bg-amber-500/10;
+}
+.markdownRenderer .mdCallout--important {
+  @apply border-red-500/35 bg-red-500/10;
+}
+
+/* Hunt thread: infographic-style report card */
+.huntReportInfographic {
+  @apply relative rounded-2xl overflow-hidden mb-4;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  background: linear-gradient(155deg, rgba(15, 23, 42, 0.98) 0%, rgba(30, 27, 75, 0.45) 45%, rgba(15, 23, 42, 0.98) 100%);
+  box-shadow:
+    0 0 0 1px rgba(56, 189, 248, 0.08),
+    0 12px 40px rgba(0, 0, 0, 0.4);
+}
+.huntReportInfographic::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(ellipse 90% 60% at 15% -10%, rgba(56, 189, 248, 0.14), transparent 55%),
+    radial-gradient(ellipse 70% 50% at 95% 105%, rgba(129, 140, 248, 0.18), transparent 50%);
+  pointer-events: none;
+}
+.huntReportInfographic__header {
+  @apply relative z-[1] flex items-center justify-between gap-3 px-4 py-3 border-b border-white/[0.06];
+}
+.huntReportInfographic__body {
+  @apply relative z-[1] px-4 py-4 max-h-[min(70vh,780px)] overflow-y-auto;
+}
+.huntReportInfographic__md.markdownRenderer--enhanced {
+  @apply max-w-none mx-0 text-sm;
+}
+.huntReportInfographic__md .mdH1:first-child,
+.huntReportInfographic__md h1:first-child {
+  @apply mt-0 pt-0;
+}
