@@ -1,0 +1,50 @@
+name: Release
+
+# Creates a GitHub Release automatically:
+#   • push a version tag  ->  git tag v0.9.0 && git push origin v0.9.0
+#   • or run manually from the Actions tab (workflow_dispatch) with a tag input
+# Release notes are auto-generated from the commits/PRs since the previous tag.
+# A tag containing a hyphen (e.g. v0.9.0-beta) is published as a pre-release.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag to release (e.g. v0.9.0 or v0.9.0-beta)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine tag + prerelease flag
+        id: meta
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if echo "$TAG" | grep -q '-'; then
+            echo "prerelease=--prerelease" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release with auto-generated notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.meta.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "${{ steps.meta.outputs.tag }}" \
+            --generate-notes \
+            ${{ steps.meta.outputs.prerelease }}
