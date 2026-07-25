@@ -67,6 +67,9 @@ FROM deps AS runtime
 COPY redweaver/ ./redweaver/
 COPY redweaver_engine/ ./redweaver_engine/
 COPY apps/ ./apps/
+# Golden answer keys for `manage.py eval_hunt` — read at runtime, so they have
+# to be in the image, not just the repo.
+COPY evals/ ./evals/
 COPY manage.py entrypoint.sh ./
 RUN chmod +x /app/entrypoint.sh \
     && mkdir -p /app/media/screenshots /app/staticfiles

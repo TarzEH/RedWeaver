@@ -203,7 +203,7 @@ class RunDetailSerializer(RunSummarySerializer):
         fields = RunSummarySerializer.Meta.fields + (
             "messages", "graph_state", "scope", "objective",
             "prompt_tokens", "completion_tokens", "total_tokens", "cost_usd",
-            "error_message",
+            "budget_usd", "error_message",
         )
 
     def get_graph_state(self, obj):
@@ -247,6 +247,10 @@ class HuntCreateSerializer(serializers.Serializer):
     objective = serializers.CharField(required=False, default="comprehensive")
     agent_selection = serializers.ListField(child=serializers.CharField(), required=False)
     timeout_seconds = serializers.IntegerField(required=False, default=900)
+    # Spend ceiling for this hunt. Omitted -> the RUN_BUDGET_USD default (0 = none).
+    budget_usd = serializers.DecimalField(
+        max_digits=10, decimal_places=2, required=False, allow_null=True, min_value=0,
+    )
     ssh_config = serializers.DictField(required=False)
     # Pre-hunt ATT&CK plan: either an explicit technique-id list, or a full ATT&CK
     # Navigator layer (the JSON exported from the Navigator) we parse server-side.
@@ -286,6 +290,7 @@ class HuntCreateSerializer(serializers.Serializer):
             agent_selection=validated.get("agent_selection", []),
             attack_focus=techniques,
             timeout_seconds=validated.get("timeout_seconds", 900),
+            budget_usd=validated.get("budget_usd"),
             ssh_config=validated.get("ssh_config"),
         )
 

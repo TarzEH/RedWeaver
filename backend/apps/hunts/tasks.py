@@ -16,13 +16,14 @@ from django.utils import timezone
 from apps.accounts.keys import keys_provider_for_user
 from apps.common.redaction import scrub_secrets
 
+# Register the Attack task with Celery (autodiscover only imports tasks.py).
+from .attack_tasks import generate_attack_playbook  # noqa: E402,F401
+from .budget import BudgetExceeded, BudgetGuard
 from .costs import estimate_cost_usd
 from .crew_factory import build_crew_factory
 from .models import Run, RunStatus
 from .observability_sink import make_event_callback
-
-# Register the Attack task with Celery (autodiscover only imports tasks.py).
-from .attack_tasks import generate_attack_playbook  # noqa: E402,F401
+from .verify_tasks import run_verification
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +136,27 @@ def execute_run(self, run_id: str) -> None:
         "active_nodes": ["orchestrator"], "completed_nodes": [],
     })
 
+    # Model name is resolved once: the budget guard prices tokens against it and
+    # `selected_model` is often blank when the provider default is in use.
+    try:
+        from redweaver_engine.llm_factory import LLMFactory
+        model = LLMFactory(keys).resolve_model_name()
+    except Exception:
+        model = ""
+
+    guard = BudgetGuard(run, model, callback)
+    if guard.enabled:
+        logger.info("run %s: budget ceiling $%.2f", run.id, guard.limit_usd)
+
+    # The guard needs the crew (for usage metrics) but the crew needs the
+    # callback — a one-slot holder breaks the cycle.
+    crew_holder: list = []
+
+    def budgeted_task_callback(task_output):
+        bridge.task_callback(task_output)
+        if crew_holder:
+            guard.check(crew_holder[0])
+
     with run_context(str(run.id), None):
         try:
             crew = factory.create_crew(
@@ -143,11 +165,12 @@ def execute_run(self, run_id: str) -> None:
                 objective=run.objective or "comprehensive",
                 ssh_config=run.ssh_config if isinstance(run.ssh_config, dict) else None,
                 step_callback=bridge.step_callback,
-                task_callback=bridge.task_callback,
+                task_callback=budgeted_task_callback,
                 event_bridge=bridge,
                 run_id=str(run.id),
                 attack_techniques=run.attack_focus or None,
             )
+            crew_holder.append(crew)
             logger.info("CrewAI kickoff for run %s (target=%s)", run.id, run.target)
             result = crew.kickoff()
 
@@ -168,11 +191,14 @@ def execute_run(self, run_id: str) -> None:
                 run.prompt_tokens = pt
                 run.completion_tokens = ct
                 run.total_tokens = int(getattr(usage, "total_tokens", 0) or (pt + ct))
-                try:
-                    model = (keys.get_all() or {}).get("selected_model") or ""
-                except Exception:
-                    model = ""
                 run.cost_usd = estimate_cost_usd(model, pt, ct)
+
+            # Independent refutation pass before the run is called done, so the
+            # findings API and the generated report reflect verified triage.
+            try:
+                run_verification(run, keys, callback)
+            except Exception:
+                logger.exception("verification pass failed for run %s", run.id)
 
             findings_count = run.findings.count()
             completed = bridge.completed_agents
@@ -193,11 +219,30 @@ def execute_run(self, run_id: str) -> None:
             })
             try:
                 from collections import Counter
+
                 from .notify import notify_run_complete
                 sev = dict(Counter(run.findings.values_list("severity", flat=True)))
                 notify_run_complete(run, findings_count, sev)
             except Exception:
                 pass
+        except BudgetExceeded as exc:
+            # Not a failure: the hunt was stopped deliberately and the findings
+            # gathered so far are real. CANCELLED says "stopped early" honestly,
+            # where COMPLETED would claim coverage the run never had.
+            logger.warning("execute_run stopped on budget for %s", run_id)
+            try:
+                run_verification(run, keys, callback)
+            except Exception:
+                logger.exception("verification pass failed for budget-stopped run %s", run.id)
+            run.status = RunStatus.CANCELLED
+            run.error_message = str(exc)
+            run.completed_at = timezone.now()
+            run.save(update_fields=["status", "error_message", "completed_at", "updated_at"])
+            callback("hunt_complete", {
+                "findings_count": run.findings.count(),
+                "agents_completed": bridge.completed_agents,
+                "stopped_early": "budget",
+            })
         except SoftTimeLimitExceeded:
             logger.warning("execute_run timed out for %s", run_id)
             run.status = RunStatus.FAILED

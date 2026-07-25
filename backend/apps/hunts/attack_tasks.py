@@ -9,7 +9,7 @@ from django.utils import timezone
 from apps.accounts.keys import keys_provider_for_user
 from apps.observability.publisher import publish
 
-from .crew_factory import _build_crewai_llm
+from .crew_factory import llm_for_role
 from .models import Run
 
 logger = logging.getLogger(__name__)
@@ -41,7 +41,7 @@ def generate_attack_playbook(self, run_id: str) -> None:
         return
 
     keys = kp.get_all()
-    llm = _build_crewai_llm(lf, keys)
+    llm = llm_for_role(lf, keys, "attack")
     registry = ToolRegistry(
         virustotal_api_key=keys.get("virustotal_api_key"),
         urlscan_api_key=keys.get("urlscan_api_key"),

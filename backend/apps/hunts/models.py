@@ -185,11 +185,17 @@ class Run(TimeStampedUUIDModel):
     completed_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(blank=True, default="")
 
-    # LLM cost accounting (captured from CrewAI token usage after kickoff)
+    # LLM cost accounting (refreshed at every task boundary during the run)
     prompt_tokens = models.IntegerField(default=0)
     completion_tokens = models.IntegerField(default=0)
     total_tokens = models.IntegerField(default=0)
     cost_usd = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    # Spend ceiling in USD. Null/0 -> fall back to the RUN_BUDGET_USD env
+    # default, which is itself 0 (unlimited) unless the operator sets it.
+    budget_usd = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Stop the hunt once estimated LLM spend reaches this. Empty = no limit.",
+    )
 
     # Artifacts (report kept for the report API; messages = chat transcript)
     report_markdown = models.TextField(blank=True, default="")

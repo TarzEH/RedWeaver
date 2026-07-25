@@ -1,0 +1,62 @@
+# Per-agent LLM routing.
+#
+# RedWeaver ships with routing INACTIVE: every tier below has an empty `model`,
+# which means "use the globally selected model" — exactly the behaviour before
+# this file existed. Nothing here opts you into a local/self-hosted model; a
+# provider is only used if you name it explicitly.
+#
+# Why bother: recon/crawler/fuzzer chew huge tool dumps and mostly reformat them
+# (cheap-model work), while exploit_analyst/report_writer/attack do the actual
+# reasoning (frontier-model work). Splitting them typically cuts run cost by
+# more than half at equal quality — measure it with `manage.py eval_hunt`.
+#
+# Resolution order for each field (first non-empty wins):
+#   1. env  AGENT_MODEL_<AGENT>          e.g. AGENT_MODEL_RECON=gpt-4.1-nano
+#   2. keys agent_model_<agent>          (per-user setting in the vault)
+#   3. env  MODEL_TIER_<TIER>            e.g. MODEL_TIER_FAST=gpt-4.1-nano
+#   4. keys model_tier_<tier>
+#   5. the `model:` value in this file
+#   6. the globally selected model (LLMFactory.resolve_model_name)
+#
+# `provider` follows the same order via AGENT_PROVIDER_<AGENT> /
+# MODEL_TIER_<TIER>_PROVIDER / keys / this file, and falls back to the globally
+# resolved provider. Valid values: openai, anthropic, google, ollama.
+#
+# Kill switch: MODEL_ROUTING_ENABLED=false ignores this file entirely.
+
+tiers:
+  # High volume, low judgement: summarizing tool output into structured JSON.
+  fast:
+    model: ""
+    provider: ""
+    temperature: 0.1
+
+  # Balanced default for scanning/exploitation support agents.
+  standard:
+    model: ""
+    provider: ""
+    temperature: 0.1
+
+  # Correlation, exploitation reasoning and report prose — worth the frontier model.
+  deep:
+    model: ""
+    provider: ""
+    temperature: 0.1
+
+# Which tier each agent runs on. Unknown agents fall back to `default_tier`.
+default_tier: standard
+
+agents:
+  recon: fast
+  crawler: fast
+  fuzzer: fast
+  web_search: fast
+  vuln_scanner: standard
+  privesc: standard
+  tunnel_pivot: standard
+  post_exploit: standard
+  exploit_analyst: deep
+  report_writer: deep
+  # Non-crew roles
+  attack: deep
+  verifier: fast

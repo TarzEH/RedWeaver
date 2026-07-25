@@ -261,6 +261,15 @@ KB_EMBED_DIM = (
     else (384 if KB_EMBED_PROVIDER == "huggingface" else 1536)
 )
 KB_EMBED_DEVICE = env("KB_EMBED_DEVICE", default="cpu") or "cpu"  # cpu | cuda (HF)
+
+# ----------------------------------------------------------------------------
+# Findings verification — an independent refutation pass over a hunt's findings.
+# Costs one extra LLM call per run (batched); disable it to trade accuracy for
+# spend. Routed via the `verifier` role in redweaver_engine/config/model_routing.yaml.
+# ----------------------------------------------------------------------------
+VERIFY_FINDINGS = env.bool("VERIFY_FINDINGS", default=True)
+VERIFY_MAX_FINDINGS = env.int("VERIFY_MAX_FINDINGS", default=25)
+VERIFY_MIN_SEVERITY = env("VERIFY_MIN_SEVERITY", default="low").lower()
 # Fernet key for ApiKeyVault secret encryption (falls back to derived from SECRET_KEY).
 FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY", default="")
 

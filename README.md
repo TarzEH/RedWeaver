@@ -50,6 +50,7 @@ Task-focused guides live in [`docs/`](docs/):
 | [Development](docs/DEVELOPMENT.md) | Local dev (Docker & non-Docker), checks CI runs, repo layout |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Failed/hung runs, rate limits, key errors, blank UI |
 | [Architecture](docs/ARCHITECTURE.md) | System design — containers and Python package layers |
+| [Tuning a hunt](docs/TUNING.md) | Scoring hunt quality, per-agent model routing, finding verification, spend caps |
 
 ---
 
@@ -225,6 +226,13 @@ RedWeaver supports multiple LLM providers. Configure via `.env` or the **Setting
 | `REDIS_URL` / `CHANNEL_LAYERS_URL` / `CELERY_BROKER_URL` | No | Redis roles split by DB — `/0` pub/sub, `/1` Channels, `/2` Celery (composed by Compose) |
 | `CSRF_TRUSTED_ORIGINS` / `ALLOWED_HOSTS` | No | Django host/CSRF allow-lists (defaults cover localhost) |
 | `SCREENSHOTS_DIR` | No | Playwright screenshot path under the shared media volume |
+| `MODEL_TIER_FAST` / `_STANDARD` / `_DEEP` | No | Per-tier model override — cheap models for bulk agents, frontier for reasoning. Unset = one model for all agents. See [Tuning](docs/TUNING.md) |
+| `AGENT_MODEL_<AGENT>` | No | Override one agent's model (e.g. `AGENT_MODEL_REPORT_WRITER`), beating its tier |
+| `MODEL_ROUTING_ENABLED` | No | `false` ignores all routing config |
+| `VERIFY_FINDINGS` | No | Independent refutation pass over findings (default `true`); `VERIFY_MAX_FINDINGS`, `VERIFY_MIN_SEVERITY` bound it |
+| `RUN_BUDGET_USD` | No | Default spend ceiling per hunt; `0` (default) = no limit. Per-run `budget_usd` overrides it |
+| `REDWEAVER_MODEL_PRICES` | No | JSON `{"model": [prompt_per_1M, completion_per_1M]}` to correct/extend the cost table |
+| `CONFIDENCE_WEIGHTS` | No | JSON weight overrides for finding confidence — see `manage.py calibrate_confidence` |
 
 > \* At least one LLM provider key is required. Keys can also be set in the Settings UI.
 

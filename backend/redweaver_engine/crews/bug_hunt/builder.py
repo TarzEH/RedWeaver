@@ -56,12 +56,24 @@ class CrewFactory:
         tool_registry: ToolRegistry,
         llm: Any,
         embedder_config: dict[str, Any] | None = None,
+        llm_for_agent: Callable[[str], Any] | None = None,
     ) -> None:
         self._registry = tool_registry
         self._llm = llm
         self._embedder_config = embedder_config
+        # Optional per-agent model routing. Absent -> every agent shares `llm`.
+        self._llm_for_agent = llm_for_agent
         self._agent_prompts = get_agent_prompt_dicts()
         self._task_templates = get_task_description_templates()
+
+    def _llm_for(self, agent_name: str) -> Any:
+        if self._llm_for_agent is None:
+            return self._llm
+        try:
+            return self._llm_for_agent(agent_name) or self._llm
+        except Exception:
+            logger.warning("llm_for_agent(%r) failed; using default LLM", agent_name, exc_info=True)
+            return self._llm
 
     def create_crew(
         self,
@@ -161,7 +173,6 @@ class CrewFactory:
         run_id: str | None = None,
     ) -> dict[str, Agent]:
         common: dict[str, Any] = {
-            "llm": self._llm,
             "verbose": verbose,
             "allow_delegation": False,
             "respect_context_window": True,
@@ -185,6 +196,7 @@ class CrewFactory:
                 goal=config["goal"],
                 backstory=config["backstory"],
                 tools=tools,
+                llm=self._llm_for(name),
                 **common,
             )
             logger.debug("Built agent: %s (%d tools)", name, len(tools))
@@ -200,6 +212,7 @@ class CrewFactory:
                     goal=config["goal"],
                     backstory=config["backstory"],
                     tools=tools,
+                    llm=self._llm_for(name),
                     **common,
                 )
                 logger.debug("Built SSH agent: %s (%d tools)", name, len(tools))

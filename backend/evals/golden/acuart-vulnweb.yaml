@@ -1,0 +1,46 @@
+# Acunetix's public test target ("Acuart") — deliberately vulnerable, published
+# by Acunetix for scanner testing. Legal to scan; still rate-limit yourself.
+#
+# STARTING POINT, NOT GROUND TRUTH: written from the target's public description,
+# not from a scored run. Tune it against your own runs (see README.md) before
+# reading the absolute numbers as fact.
+name: acuart-vulnweb
+target: http://testphp.vulnweb.com
+notes: >
+  Classic LAMP-era test app: PHP + nginx, SQL injection in the product/artist
+  listings, reflected XSS in search, and a directory-listing style file store.
+
+expected:
+  - id: sqli
+    title_any: ["sql injection", "sqli"]
+    min_severity: high
+    note: The listing pages take an unsanitised numeric id.
+
+  - id: xss
+    title_any: ["cross-site scripting", "cross site scripting", "xss"]
+    min_severity: medium
+    note: Reflected XSS via the search parameter.
+
+  - id: server-stack
+    title_any: ["nginx", "php/5", "php/7", "php version", "x-powered-by"]
+    note: >
+      Recon must fingerprint the server stack. Deliberately NOT a bare "php" —
+      that substring appears in every .php URL a finding title mentions, so it
+      would match anything and inflate recall.
+
+  - id: http-open
+    title_any: ["port 80", "http service", "open port"]
+    note: Baseline recon — if this is missed, the scan did not reach the target.
+
+forbidden:
+  - id: not-wordpress
+    title_any: ["wordpress", "wp-admin", "wp-content"]
+    note: Hand-written PHP, no WordPress anywhere on this host.
+
+  - id: not-windows
+    title_any: ["windows server", "iis", "smb", "netbios"]
+    note: Linux/nginx host — Windows service claims are hallucinations.
+
+  - id: no-https-findings
+    title_any: ["ssl certificate expired", "tls certificate"]
+    note: The test target is plain HTTP; TLS certificate findings are invented.

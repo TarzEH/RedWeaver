@@ -1,0 +1,47 @@
+# OWASP Juice Shop — run it yourself:
+#   docker run --rm -p 3000:3000 bkimminich/juice-shop
+#
+# STARTING POINT, NOT GROUND TRUTH: tune against your own runs (see README.md).
+# Juice Shop is a Node/Express SPA, so a crawler that only follows <a href> links
+# will under-report — that under-reporting is exactly what this key measures.
+name: juice-shop
+target: http://localhost:3000
+notes: >
+  Modern SPA target. Good counterweight to the PHP keys: it catches crawler
+  regressions (Angular routes, REST endpoints under /api and /rest) that a
+  server-rendered target never exercises.
+
+expected:
+  - id: express-stack
+    title_any: ["express", "node", "javascript"]
+    note: Technology fingerprinting must identify the Node/Express stack.
+
+  - id: api-endpoints
+    title_any: ["api", "rest", "endpoint"]
+    url_any: ["/api", "/rest"]
+    note: The crawler must reach the JSON API, not just the HTML shell.
+
+  - id: security-headers
+    title_any: ["content-security-policy", "x-frame-options", "security header", "hsts"]
+    note: Juice Shop ships deliberately weak headers.
+
+  - id: exposed-metadata
+    title_any: ["ftp", "package.json", "backup", "directory listing", "exposed file"]
+    note: The /ftp directory is browsable and holds files that should not be served.
+
+  - id: http-open
+    title_any: ["port 3000", "open port", "http service"]
+    note: Baseline recon.
+
+forbidden:
+  - id: not-php
+    title_any: ["php", "phpmyadmin", ".php"]
+    note: No PHP in this stack — a PHP finding is a hallucination.
+
+  - id: not-apache
+    title_any: ["apache httpd", "mod_", "iis"]
+    note: Express serves directly; Apache/IIS claims are invented.
+
+  - id: not-wordpress
+    title_any: ["wordpress", "wp-content"]
+    note: Not a WordPress site.
