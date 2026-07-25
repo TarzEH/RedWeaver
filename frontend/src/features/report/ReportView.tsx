@@ -15,6 +15,7 @@ import { VerdictHero } from "../../components/domain/report/VerdictHero";
 import { SeverityBar } from "../../components/domain/report/SeverityBar";
 import { CvssEpssScatter } from "../../components/domain/report/CvssEpssScatter";
 import { MitreHeatmap } from "../../components/domain/report/MitreHeatmap";
+import { VerificationSummary } from "../../components/domain/report/VerificationSummary";
 import { AttackPathGraph } from "../../components/domain/report/AttackPathGraph";
 import { CostBadge } from "../../components/domain/report/CostBadge";
 import { AttackGraphView } from "../../components/domain/AttackGraphView";
@@ -149,6 +150,9 @@ export function ReportView({ runId: runIdProp }: ReportViewProps) {
   const mitre = report.compliance?.mitre_attack ?? [];
   const priorities = report.remediation_priorities ?? [];
   const cost = report.cost;
+  // `false_positive_count` / `false_positive_titles` are declared on the shared
+  // VulnerabilityReport type, so this is just a readable alias.
+  const verification = report;
 
   return (
     <div className="flex-1 overflow-y-auto bg-rw-bg p-6 animate-fade-in">
@@ -224,6 +228,21 @@ export function ReportView({ runId: runIdProp }: ReportViewProps) {
                 </div>
               </div>
             )}
+          </section>
+        )}
+
+        {/* How the findings were produced — per-agent attribution + what the
+            verification pass ruled out (both already in build_report, never shown). */}
+        {(Object.keys(report.findings_by_agent ?? {}).length > 0 ||
+          (verification.false_positive_count ?? 0) > 0 ||
+          (verification.false_positive_titles?.length ?? 0) > 0) && (
+          <section>
+            <SectionTitle>Verification &amp; Attribution</SectionTitle>
+            <VerificationSummary
+              falsePositiveCount={verification.false_positive_count}
+              falsePositiveTitles={verification.false_positive_titles}
+              findingsByAgent={report.findings_by_agent}
+            />
           </section>
         )}
 

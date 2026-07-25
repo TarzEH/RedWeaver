@@ -59,9 +59,28 @@ def default_budget_usd() -> float:
         return 0.0
 
 
-def _usage(crew) -> tuple[int, int]:
-    """Return (prompt_tokens, completion_tokens) from a crew, or (0, 0)."""
-    metrics = getattr(crew, "usage_metrics", None)
+def usage_from_crew(crew) -> tuple[int, int]:
+    """Return (prompt_tokens, completion_tokens) for a crew, or (0, 0).
+
+    CrewAI exposes this as the **method** ``calculate_usage_metrics()``, which
+    aggregates each agent's token process and only then caches the result onto
+    ``crew.usage_metrics``. The attribute therefore does not exist until the
+    method has been called at least once.
+
+    Reading only the attribute — which this did — silently returned (0, 0) on
+    every call, so the live cost never updated during a run and the budget
+    ceiling could never trip. Prefer the method; fall back to the attribute so a
+    crew that only caches a value (or a test double) still works.
+    """
+    metrics = None
+    calculate = getattr(crew, "calculate_usage_metrics", None)
+    if callable(calculate):
+        try:
+            metrics = calculate()
+        except Exception:
+            logger.debug("calculate_usage_metrics() failed", exc_info=True)
+    if metrics is None:
+        metrics = getattr(crew, "usage_metrics", None)
     if metrics is None:
         return 0, 0
     prompt = int(getattr(metrics, "prompt_tokens", 0) or 0)
@@ -95,7 +114,7 @@ class BudgetGuard:
         expose usage metrics simply yields no update.
         """
         try:
-            prompt, completion = _usage(crew)
+            prompt, completion = usage_from_crew(crew)
         except Exception:
             logger.debug("Could not read crew usage metrics", exc_info=True)
             return

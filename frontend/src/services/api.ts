@@ -296,9 +296,11 @@ export const api = {
       }),
   },
 
+  // Starts a hunt from a free-text target. Named `chat` for URL compatibility
+  // only — there is no conversation here and the endpoint returns no prose.
   chat: {
     send: (body: Record<string, unknown>) =>
-      request<{ reply: string; deferred?: boolean; created_run?: boolean; run_id?: string }>(
+      request<{ run_id: string; status?: string; created_run?: boolean }>(
         "/api/chat",
         { method: "POST", body: JSON.stringify(body) },
       ),

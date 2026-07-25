@@ -20,12 +20,18 @@ export interface RunSummary {
   target: string;
   status: RunStatus;
   created_at: string;
+  completed_at?: string | null;
   /** Set when this run was started from a workspace session hunt */
   hunt_id?: string;
   session_id?: string;
   workspace_id?: string;
   session_name?: string;
   workspace_name?: string;
+  /** Estimated LLM spend. Serialized as a string by DRF's DecimalField. */
+  cost_usd?: string | number | null;
+  total_tokens?: number | null;
+  /** Spend ceiling for this run; null means no limit was set. */
+  budget_usd?: string | number | null;
 }
 
 export interface RunMessage {
@@ -49,6 +55,7 @@ export interface RunDetail {
   target: string;
   status: RunStatus;
   created_at: string;
+  completed_at?: string | null;
   messages: RunMessage[];
   graph_state?: GraphState;
   scope?: string | null;
@@ -58,6 +65,19 @@ export interface RunDetail {
   workspace_id?: string;
   session_name?: string;
   workspace_name?: string;
+  /**
+   * Live spend. The backend rewrites these at every agent-task boundary, and
+   * this object is already polled every 3s during a run — declaring them is
+   * what makes in-flight cost renderable. DRF serializes DecimalField as a
+   * string, so callers must coerce before doing arithmetic.
+   */
+  prompt_tokens?: number | null;
+  completion_tokens?: number | null;
+  total_tokens?: number | null;
+  cost_usd?: string | number | null;
+  budget_usd?: string | number | null;
+  /** Why a run failed, or why it stopped early (e.g. the budget ceiling). */
+  error_message?: string | null;
 }
 
 /**
@@ -297,6 +317,13 @@ export interface VulnerabilityReport {
   findings: Finding[];
   total_by_severity?: Record<string, number>;
   findings_by_severity?: Record<string, number>;
+  /**
+   * What the verification pass ruled out. The severity counts above already
+   * exclude these; they are reported separately so a reader can see what was
+   * discarded rather than have it silently vanish.
+   */
+  false_positive_count?: number;
+  false_positive_titles?: string[];
   report_markdown: string;
   generated_at: string;
   risk_rating: string;

@@ -103,6 +103,17 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
   const counts: Record<string, number> = { all: population.length };
   for (const s of ALL_SEVERITIES) counts[s] = population.filter((f) => f.severity === s).length;
 
+  // How many of each severity are hidden behind the ruled-out filter. Without
+  // this the facets read "Critical (0)" on a run whose report says two — the
+  // findings are there and refuted, but the screen looks like they never
+  // existed, which reads as a broken scan rather than a working verifier.
+  const hiddenBySeverity: Record<string, number> = {};
+  for (const s of ALL_SEVERITIES) {
+    hiddenBySeverity[s] = hideRuledOut
+      ? findings.filter((f) => f.severity === s && isRuledOut(f.status)).length
+      : 0;
+  }
+
   if (!runId) {
     return (
       <EmptyState icon={<Shield size={compact ? 20 : 28} />} title="Select a hunt to view findings." compact={compact} />
@@ -215,8 +226,19 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
             onClick={() => setFilter(s)}
             aria-pressed={filter === s}
             className={cn(pillCls(filter === s), "capitalize")}
+            title={
+              hiddenBySeverity[s] > 0
+                ? `${counts[s]} standing, ${hiddenBySeverity[s]} ruled out by the verifier and hidden`
+                : undefined
+            }
           >
             {s} ({counts[s]})
+            {hiddenBySeverity[s] > 0 && (
+              <span className="ml-1 text-rw-dim">
+                +{hiddenBySeverity[s]}
+                <span className="sr-only"> ruled out and hidden</span>
+              </span>
+            )}
           </button>
         ))}
         {ruledOutCount > 0 && (

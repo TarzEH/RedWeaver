@@ -9,7 +9,7 @@ import { Card } from "../../components/ui/Card";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { SeverityBadge } from "../../components/ui/SeverityBadge";
 import { Skeleton } from "../../components/ui/Skeleton";
-import { Table, THead, TBody, TH, TR, TD } from "../../components/ui/Table";
+import { Table, TableScroll, THead, TBody, TH, TR, TD } from "../../components/ui/Table";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { cn } from "../../lib/cn";
 import { ExposureCard } from "./ExposureCard";
@@ -265,7 +265,8 @@ export function AssetInventoryPage() {
 
           {/* Host table */}
           <Card padding="none" className="overflow-hidden">
-            <Table>
+            <TableScroll label="Discovered hosts">
+            <Table stickyHeader stickyFirstCol>
               <THead>
                 <tr>
                   <TH>Host</TH>
@@ -344,6 +345,7 @@ export function AssetInventoryPage() {
                 ))}
               </TBody>
             </Table>
+            </TableScroll>
           </Card>
         </>
       )}

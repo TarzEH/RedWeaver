@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { FileText, Download, Printer, LayoutDashboard, GitCompare } from "lucide-react";
+import { FileText, Download, Printer, LayoutDashboard, GitCompare, ShieldCheck } from "lucide-react";
 import { MarkdownRenderer } from "../../components/domain/MarkdownRenderer";
 import { Spinner } from "../../components/ui/Spinner";
+import { isRuledOut } from "../../components/ui/FindingStatusBadge";
 import { buildReportMarkdown } from "../report/buildReportMarkdown";
 import { api } from "../../services/api";
 import { ApiError, getToken } from "../../services/http";
@@ -95,6 +96,23 @@ export function HuntReportBlock({ runId, onContentLoaded }: HuntReportBlockProps
 
   const markdown = buildReportMarkdown(report);
 
+  /*
+   * The narrative below is whatever `report_writer` wrote, frozen at the moment
+   * it wrote it — which is *before* the verification pass adjudicates findings.
+   * When the verifier later refutes something, the frozen prose keeps describing
+   * risk that the report's own counts no longer contain: the same run says
+   * "critical vulnerabilities require immediate remediation" here and "Low, 0
+   * critical" on the report tab.
+   *
+   * Detected, not assumed: the payload's `findings` array keeps refuted entries
+   * with their `status`, so anything the verifier ruled out is countable right
+   * here. (The API also returns a `false_positive_count`, but it is absent from
+   * the `VulnerabilityReport` TS type, which this file does not own.)
+   */
+  const ruledOutCount = (report.findings ?? []).filter((f) => isRuledOut(f.status)).length;
+  const standingCount = (report.findings?.length ?? 0) - ruledOutCount;
+  const showVerificationNote = ruledOutCount > 0 && Boolean(report.report_markdown?.trim());
+
   const downloadMd = () => {
     const blob = new Blob([markdown], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
@@ -130,7 +148,10 @@ export function HuntReportBlock({ runId, onContentLoaded }: HuntReportBlockProps
             <FileText size={18} className="text-sky-300" />
           </div>
           <div className="min-w-0">
-            <h3 className="text-sm font-semibold text-rw-text tracking-tight">Assessment report</h3>
+            {/* truncate, not just min-w-0 on the parent: min-w-0 lets the box
+                shrink, but the text still lays out at its min-content width and
+                spills over whatever sits beside it. */}
+            <h3 className="truncate text-sm font-semibold text-rw-text tracking-tight">Assessment report</h3>
             <p className="text-[10px] text-rw-dim truncate font-mono">{report.target}</p>
           </div>
         </div>
@@ -154,6 +175,29 @@ export function HuntReportBlock({ runId, onContentLoaded }: HuntReportBlockProps
         </div>
       </div>
       <div className="huntReportInfographic__body">
+        {showVerificationNote && (
+          <aside className="mb-4 flex gap-2.5 rounded-lg border border-rw-accent/25 bg-rw-accent/5 px-3 py-2.5">
+            <ShieldCheck size={15} className="mt-0.5 shrink-0 text-rw-accent" aria-hidden />
+            <p className="text-xs leading-relaxed text-rw-muted">
+              <span className="font-medium text-rw-text">Verified after this was written.</span>{" "}
+              A verification pass ran after this narrative was drafted and ruled out{" "}
+              <span className="font-mono tabular-nums">{ruledOutCount}</span> finding
+              {ruledOutCount === 1 ? "" : "s"} as false positive
+              {ruledOutCount === 1 ? "" : "s"}, leaving{" "}
+              <span className="font-mono tabular-nums">{standingCount}</span> standing. The text
+              below still describes the pre-verification picture, so it can read more severe than
+              the run actually was. The{" "}
+              <Link
+                to={`/hunt/${runId}/report`}
+                className="text-rw-accent underline underline-offset-2 hover:text-rw-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rw-accent"
+              >
+                report
+              </Link>{" "}
+              carries the current severity counts and risk rating
+              {report.risk_rating ? ` (${report.risk_rating})` : ""}.
+            </p>
+          </aside>
+        )}
         <MarkdownRenderer content={markdown} variant="enhanced" className="huntReportInfographic__md" />
       </div>
     </section>

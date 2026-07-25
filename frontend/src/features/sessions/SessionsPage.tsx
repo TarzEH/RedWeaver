@@ -523,7 +523,7 @@ export function SessionsPage() {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 animate-fade-in">
+    <div className="flex-1 overflow-y-auto p-6">
       <PageHeader
         title="Sessions & Targets"
         subtitle={`${workspaces.length} workspace${workspaces.length !== 1 ? "s" : ""} · ${sessions.length} session${sessions.length !== 1 ? "s" : ""}`}

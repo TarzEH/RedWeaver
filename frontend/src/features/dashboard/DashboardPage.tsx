@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Shield, Target, Activity, AlertTriangle, Plus, ExternalLink } from "lucide-react";
+import { Shield, Target, DollarSign, AlertTriangle, Plus, ExternalLink } from "lucide-react";
 import {
   PieChart,
   Pie,
@@ -24,8 +24,24 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { Table, THead, TBody, TH, TR, TD } from "../../components/ui/Table";
 import { PageHeader } from "../../components/layout/PageHeader";
+import { KpiCard } from "../../components/domain/dashboard/KpiCard";
+import { CostSection } from "../../components/domain/dashboard/CostSection";
+import { LiveControls } from "../../components/domain/dashboard/LiveControls";
+import { FreshnessLabel } from "../../components/domain/dashboard/FreshnessLabel";
+import { buildDailyTrend } from "./metrics";
+import { useStableTrend } from "./useStableTrend";
+import { formatUsd, toNumber } from "../../lib/money";
 import { api } from "../../services/api";
 import type { RunSummary, Finding } from "../../types/api";
+
+/** Baseline every KPI on this page is measured against. */
+const BASELINE_LABEL = "previous 7d";
+
+/** Absolute-delta wording for count metrics (used when p50 has no baseline). */
+const countUnit = (noun: string) => (v: number) => {
+  const n = Math.round(v);
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
+};
 
 /** Finding rows are tagged with the originating run's target for trend grouping. */
 type TaggedFinding = Finding & { _target?: string; _runId?: string; _created?: string };
@@ -36,12 +52,29 @@ export function DashboardPage() {
   const [allFindings, setAllFindings] = useState<TaggedFinding[]>([]);
   const [runsLoading, setRunsLoading] = useState(true);
   const [findingsLoading, setFindingsLoading] = useState(true);
+  // WCAG 2.2.2 (Level A): auto-updating information needs a way to stop it.
+  // `live` gates the poll itself, so pausing genuinely halts fetching rather
+  // than just freezing what is painted.
+  const [live, setLive] = useState(true);
+  const [runsUpdatedAt, setRunsUpdatedAt] = useState<number | null>(null);
+  const [findingsUpdatedAt, setFindingsUpdatedAt] = useState<number | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Skeletons belong to the very first findings load only — see the effect below.
   const findingsFetchedRef = useRef(false);
+  // Anchors the day buckets before the first fetch lands.
+  const mountedAtRef = useRef(Date.now());
 
   const fetchRuns = () => {
-    api.runs.list().then(setRuns).catch(() => {}).finally(() => setRunsLoading(false));
+    api.runs
+      .list()
+      .then((rows) => {
+        setRuns(rows);
+        setRunsUpdatedAt(Date.now());
+      })
+      .catch(() => {})
+      // Only ever goes true → false, so a background poll cannot reintroduce a
+      // skeleton. React bails out of a re-render when the value is unchanged.
+      .finally(() => setRunsLoading(false));
   };
 
   useEffect(() => { fetchRuns(); }, []);
@@ -64,7 +97,12 @@ export function DashboardPage() {
 
   useEffect(() => {
     const targets = finishedRunsRef.current;
-    if (targets.length === 0) { setAllFindings([]); setFindingsLoading(false); return; }
+    if (targets.length === 0) {
+      setAllFindings([]);
+      setFindingsLoading(false);
+      setFindingsUpdatedAt(Date.now());
+      return;
+    }
     // Only the first load may swap in skeletons; a background refresh keeps the
     // charts mounted, otherwise recharts replays its entry animation on remount.
     if (!findingsFetchedRef.current) setFindingsLoading(true);
@@ -97,20 +135,77 @@ export function DashboardPage() {
         if (ignore) return;
         findingsFetchedRef.current = true;
         setFindingsLoading(false);
+        setFindingsUpdatedAt(Date.now());
       });
     return () => { ignore = true; };
   }, [finishedKey]);
 
   const hasActive = runs.some((r) => r.status === "running" || r.status === "queued");
   useEffect(() => {
-    if (hasActive) pollRef.current = setInterval(fetchRuns, 5000);
+    if (hasActive && live) pollRef.current = setInterval(fetchRuns, 5000);
     else if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [hasActive]);
+  }, [hasActive, live]);
+
+  const handleToggleLive = (next: boolean) => {
+    setLive(next);
+    // Resuming should show current data immediately, not up to 5s of staleness.
+    if (next) fetchRuns();
+  };
 
   const running = runs.filter((r) => r.status === "running").length;
   const completed = runs.filter((r) => r.status === "completed").length;
   const failed = runs.filter((r) => r.status === "failed").length;
+
+  // Anchor every window to the moment of the last fetch rather than to
+  // `Date.now()` at render time, so the memos below stay stable between polls.
+  const now = runsUpdatedAt ?? mountedAtRef.current;
+
+  // ── KPI trends ────────────────────────────────────────────────────────────
+  // Each metric is a 7-day total measured against the 7 days before it, with a
+  // 14-point daily series so the sparkline shows both windows. Direction
+  // semantics are declared per metric at the render site — `Failed ↑` is bad
+  // news, `Completed ↑` is good, and nothing here assumes up means green.
+  const startedTrend = useStableTrend(
+    useMemo(() => buildDailyTrend(runs, (r) => r.created_at, () => 1, now), [runs, now]),
+  );
+  const completedTrend = useStableTrend(
+    useMemo(
+      () =>
+        buildDailyTrend(
+          runs.filter((r) => r.status === "completed"),
+          (r) => r.completed_at ?? r.created_at,
+          () => 1,
+          now,
+        ),
+      [runs, now],
+    ),
+  );
+  const failedTrend = useStableTrend(
+    useMemo(
+      () =>
+        buildDailyTrend(
+          runs.filter((r) => r.status === "failed"),
+          (r) => r.completed_at ?? r.created_at,
+          () => 1,
+          now,
+        ),
+      [runs, now],
+    ),
+  );
+  // `cost_usd` is a DRF decimal *string*; toNumber coerces before it is summed.
+  const spendTrend = useStableTrend(
+    useMemo(
+      () =>
+        buildDailyTrend(
+          runs,
+          (r) => r.completed_at ?? r.created_at,
+          (r) => toNumber(r.cost_usd) ?? 0,
+          now,
+        ),
+      [runs, now],
+    ),
+  );
 
   const sevCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -149,50 +244,114 @@ export function DashboardPage() {
       .map((e) => ({ name: e.label, ...e.counts }));
   }, [allFindings]);
 
-  const stats = [
-    { label: "Total Hunts", value: runs.length, icon: Target, color: "text-rw-accent" },
-    { label: "Running", value: running, icon: Activity, color: "text-blue-400" },
-    { label: "Completed", value: completed, icon: Shield, color: "text-emerald-400" },
-    { label: "Failed", value: failed, icon: AlertTriangle, color: "text-red-400" },
-  ];
+  // All-time standing totals. The KPI cards below are windowed, so these keep
+  // the absolute picture (including the instantaneous "running now" gauge,
+  // which has no meaningful 7-day baseline) visible next to the title.
+  const subtitle = runsLoading
+    ? "Loading hunts…"
+    : `${runs.length} hunt${runs.length === 1 ? "" : "s"} all-time · ${running} running now · ` +
+      `${completed} completed · ${failed} failed`;
 
   return (
     <div className="flex-1 overflow-y-auto p-6 animate-fade-in">
       <PageHeader
         title="Dashboard"
+        subtitle={subtitle}
         actions={
-          <Button icon={<Plus size={16} />} onClick={() => navigate("/hunt")}>
-            New Hunt
-          </Button>
+          <>
+            <FreshnessLabel at={runsUpdatedAt} paused={!live} className="mr-1 hidden sm:inline" />
+            <LiveControls
+              live={live}
+              onToggle={handleToggleLive}
+              onRefresh={fetchRuns}
+              polling={hasActive}
+            />
+            <Button icon={<Plus size={16} />} onClick={() => navigate("/hunt")}>
+              New Hunt
+            </Button>
+          </>
         }
       />
 
-      {/* Stats */}
-      <div className="grid grid-cols-4 gap-4 mb-8">
-        {runsLoading
-          ? Array.from({ length: 4 }).map((_, i) => (
-              <Card key={i}>
-                <div className="flex items-center gap-3">
-                  <Skeleton className="h-5 w-5 rounded" />
-                  <div className="space-y-1.5">
-                    <Skeleton className="h-7 w-10" />
-                    <Skeleton className="h-3 w-20" />
-                  </div>
-                </div>
-              </Card>
-            ))
-          : stats.map((s) => (
-              <Card key={s.label}>
-                <div className="flex items-center gap-3">
-                  <s.icon size={20} className={s.color} />
-                  <div>
-                    <div className="text-2xl font-bold text-rw-text">{s.value}</div>
-                    <div className="text-xs text-rw-dim">{s.label}</div>
-                  </div>
-                </div>
-              </Card>
-            ))}
+      {/* KPIs — label, value, delta against a named baseline, sparkline. */}
+      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {runsLoading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <Card key={i} className="space-y-2">
+              <Skeleton className="h-3 w-24" />
+              <Skeleton className="h-7 w-16" />
+              <Skeleton className="h-3 w-36" />
+              <Skeleton className="h-8 w-full" />
+            </Card>
+          ))
+        ) : (
+          <>
+            <KpiCard
+              label="Hunts started · 7d"
+              value={String(startedTrend.current)}
+              icon={Target}
+              trend={startedTrend}
+              // Starting more hunts is neither good nor bad on its own — it is
+              // activity, so no judgement word is rendered for this one.
+              direction="neutral"
+              baselineLabel={BASELINE_LABEL}
+              formatAbsolute={countUnit("hunt")}
+              footnote={`${runs.length} all-time`}
+            />
+            <KpiCard
+              label="Completed · 7d"
+              value={String(completedTrend.current)}
+              icon={Shield}
+              iconClass="text-emerald-400"
+              trend={completedTrend}
+              direction="up-good"
+              baselineLabel={BASELINE_LABEL}
+              formatAbsolute={countUnit("hunt")}
+              sentimentWords={{ good: "more finished", bad: "fewer finished" }}
+              footnote={`${completed} all-time`}
+              sparkStroke="#10b981"
+            />
+            <KpiCard
+              label="Failed · 7d"
+              value={String(failedTrend.current)}
+              icon={AlertTriangle}
+              iconClass="text-red-400"
+              trend={failedTrend}
+              // The inverse of Completed: a rise here is a regression.
+              direction="up-bad"
+              baselineLabel={BASELINE_LABEL}
+              formatAbsolute={countUnit("hunt")}
+              sentimentWords={{ good: "fewer failures", bad: "more failures" }}
+              footnote={`${failed} all-time`}
+              sparkStroke="#ef4444"
+            />
+            <KpiCard
+              label="Spend · 7d"
+              value={formatUsd(spendTrend.current)}
+              icon={DollarSign}
+              iconClass="text-amber-400"
+              trend={spendTrend}
+              direction="up-bad"
+              baselineLabel={BASELINE_LABEL}
+              formatAbsolute={(v) => formatUsd(v)}
+              sentimentWords={{ good: "cheaper", bad: "pricier" }}
+              footnote="see Spend below for the runs behind it"
+              sparkStroke="#f59e0b"
+            />
+          </>
+        )}
       </div>
+
+      {/* Cost — total, trend, percentiles and the runs that dominate the bill. */}
+      {!runsLoading && (
+        <CostSection
+          runs={runs}
+          spendTrend={spendTrend}
+          updatedAt={runsUpdatedAt}
+          paused={!live}
+          onOpenRun={(runId) => navigate(`/hunt/${runId}`)}
+        />
+      )}
 
       {/* Vulnerability Overview — skeleton while findings load */}
       {findingsLoading && !runsLoading && (
@@ -214,9 +373,12 @@ export function DashboardPage() {
       {/* Vulnerability Overview */}
       {!findingsLoading && allFindings.length > 0 && (
         <div className="mb-8">
-          <h2 className="text-sm font-medium text-rw-muted uppercase tracking-wider mb-3">
-            Vulnerability Overview
-          </h2>
+          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h2 className="text-sm font-medium text-rw-muted uppercase tracking-wider">
+              Vulnerability Overview
+            </h2>
+            <FreshnessLabel at={findingsUpdatedAt} paused={!live} className="ml-auto" />
+          </div>
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
             <Card>
               <span className="mb-2 block text-sm font-medium text-rw-text">Severity Distribution</span>
@@ -341,7 +503,10 @@ export function DashboardPage() {
       )}
 
       {/* Hunt List */}
-      <h2 className="text-sm font-medium text-rw-muted uppercase tracking-wider mb-3">Hunts</h2>
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <h2 className="text-sm font-medium text-rw-muted uppercase tracking-wider">Hunts</h2>
+        <FreshnessLabel at={runsUpdatedAt} paused={!live} className="ml-auto" />
+      </div>
       {/* `runsLoading` only ever goes true → false on the first load, so the
           5s poll can never flip this back to a skeleton. */}
       {runsLoading ? (
@@ -366,6 +531,7 @@ export function DashboardPage() {
                 <TH>Status</TH>
                 <TH>Target</TH>
                 <TH>Created</TH>
+                <TH>Cost</TH>
                 <TH>Run ID</TH>
                 <TH className="w-10">
                   <span className="sr-only">Open</span>
@@ -393,6 +559,9 @@ export function DashboardPage() {
                   </TD>
                   <TD className="font-mono text-xs text-rw-text">{run.target}</TD>
                   <TD className="text-rw-dim">{formatRelativeDate(run.created_at)}</TD>
+                  {/* formatUsd coerces the DRF decimal string and renders "—"
+                      when the run has no priced usage yet. */}
+                  <TD className="tabular-nums text-rw-muted">{formatUsd(run.cost_usd)}</TD>
                   <TD className="font-mono text-xs tabular-nums text-rw-dim">
                     {run.run_id.slice(0, 8)}
                   </TD>

@@ -25,7 +25,7 @@ import { Card } from "../../components/ui/Card";
 import { Badge } from "../../components/ui/Badge";
 import { Skeleton } from "../../components/ui/Skeleton";
 import { EmptyState } from "../../components/ui/EmptyState";
-import { Table, THead, TBody, TH, TR, TD } from "../../components/ui/Table";
+import { Table, TableScroll, THead, TBody, TH, TR, TD } from "../../components/ui/Table";
 import { useToast } from "../../components/ui/feedback";
 import { cn } from "../../lib/cn";
 
@@ -379,7 +379,8 @@ export function DebugPage() {
             </Card>
           ) : (
             <Card padding="none" className="overflow-hidden">
-              <Table>
+              <TableScroll label="Agent steps">
+              <Table stickyHeader>
                 <THead>
                   <tr>
                     <TH className="w-12">#</TH>
@@ -405,6 +406,7 @@ export function DebugPage() {
                   ))}
                 </TBody>
               </Table>
+              </TableScroll>
               <FeedFooter
                 feed={steps}
                 noun="agent steps"
@@ -476,7 +478,8 @@ export function DebugPage() {
             </Card>
           ) : (
             <Card padding="none" className="overflow-hidden">
-              <Table>
+              <TableScroll label="Event log">
+              <Table stickyHeader>
                 <THead>
                   <tr>
                     <TH className="w-12">#</TH>
@@ -496,6 +499,7 @@ export function DebugPage() {
                   ))}
                 </TBody>
               </Table>
+              </TableScroll>
               <FeedFooter
                 feed={events}
                 noun="events"

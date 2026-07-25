@@ -164,7 +164,7 @@ export function SettingsPage() {
   const categories = [...new Set(tools.map((t) => t.category))].sort();
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-6 animate-fade-in">
+    <div className="flex-1 overflow-y-auto p-6 space-y-6">
       <PageHeader title="Settings" />
 
       <form onSubmit={handleSave}>

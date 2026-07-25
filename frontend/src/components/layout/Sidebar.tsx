@@ -1,4 +1,4 @@
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Crosshair, LayoutDashboard, Settings, FolderOpen, LogOut, BookOpen } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 
@@ -8,6 +8,13 @@ type NavItem = {
   icon: typeof LayoutDashboard;
 };
 
+/**
+ * Global chrome only. The two previously-unreachable screens
+ * (`/hunt/:runId/findings`, `/sessions/:sessionId/assets`) are parameterised and
+ * cannot be linked from here — the Sidebar has neither a run nor a session in
+ * scope. They are reached from `app/RunSubNav`, which renders once a run id is
+ * in the URL.
+ */
 const NAV_ITEMS: NavItem[] = [
   { path: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { path: "/hunt", label: "Hunts", icon: Crosshair },
@@ -19,7 +26,6 @@ const NAV_ITEMS: NavItem[] = [
 export function Sidebar() {
   const { user, logout } = useAuth();
   const location = useLocation();
-  const navigate = useNavigate();
 
   const isActive = (path: string) => {
     if (path === "/dashboard") return location.pathname === "/dashboard";
@@ -33,14 +39,24 @@ export function Sidebar() {
         <Crosshair size={22} className="text-rw-accent" />
       </div>
 
-      {/* Navigation */}
-      <nav className="flex flex-col gap-1 p-2 flex-1">
+      {/* Navigation.
+          Real <Link> anchors rather than buttons + navigate(): they carry an
+          href, so middle-click / cmd-click / "open in new tab" work and screen
+          readers announce them as links in a navigation landmark.
+
+          No prefetch prop: `prefetch="intent"` is React Router framework mode,
+          and this app mounts <BrowserRouter> + <Routes>. See app/RouteAnnouncer. */}
+      <nav aria-label="Primary" className="flex flex-col gap-1 p-2 flex-1">
         {NAV_ITEMS.map(({ path, label, icon: Icon }) => {
           const active = isActive(path);
           return (
-            <button
+            <Link
               key={path}
-              onClick={() => navigate(path)}
+              to={path}
+              // Icon-only control: title alone is not a dependable accessible
+              // name, so the name is set explicitly.
+              aria-label={label}
+              aria-current={active ? "page" : undefined}
               title={label}
               className={`
                 flex items-center justify-center w-10 h-10 rounded-lg
@@ -51,11 +67,14 @@ export function Sidebar() {
                 }
               `}
             >
-              <Icon size={20} />
+              <Icon size={20} aria-hidden="true" />
               {active && (
-                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-rw-accent rounded-r" />
+                <span
+                  aria-hidden="true"
+                  className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-rw-accent rounded-r"
+                />
               )}
-            </button>
+            </Link>
           );
         })}
       </nav>

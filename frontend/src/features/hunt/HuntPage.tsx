@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ChatPanel } from "./ChatPanel";
+import { HuntPanel } from "./HuntPanel";
 import { HuntSidebar } from "./HuntSidebar";
 import { DetailPanel } from "../../components/layout/DetailPanel";
 import { HuntProvider } from "../../contexts/HuntContext";
@@ -54,7 +54,7 @@ export function HuntPage() {
             onNewHunt={handleNewHunt}
           />
         </div>
-        <ChatPanel
+        <HuntPanel
           selectedRunId={selectedRunId}
           onSelectRun={(id) => { handleSelectRun(id); fetchRuns(); }}
           onRunDeleted={handleRunDeleted}

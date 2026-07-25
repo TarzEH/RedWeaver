@@ -286,7 +286,12 @@ function AskResult({
                 key={src}
                 type="button"
                 onClick={() => onOpenFile(src)}
-                className="inline-flex items-center gap-1.5 rounded-full border border-rw-border bg-rw-surface px-2.5 py-1 text-[11px] text-rw-muted transition-colors hover:border-rw-accent/40 hover:text-rw-accent"
+                /*
+                  WCAG 2.2 SC 2.5.8 wants 24×24 CSS px. These chips wrap and sit
+                  adjacent to each other, so the spacing exception does not apply
+                  — the size is met with padding, the glyph stays 11px.
+                */
+                className="inline-flex min-h-6 items-center gap-1.5 rounded-full border border-rw-border bg-rw-surface px-2.5 py-1 text-[11px] text-rw-muted transition-colors hover:border-rw-accent/40 hover:text-rw-accent"
               >
                 <FileText size={11} />
                 {fileBaseName(src)}

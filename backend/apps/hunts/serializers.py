@@ -181,9 +181,15 @@ class RunSummarySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Run
-        fields = ("run_id", "target", "status", "created_at",
+        # Cost/duration travel with the list on purpose. GET /api/runs is the one
+        # call every portfolio view already makes, so carrying these four columns
+        # unlocks spend per hunt, per target, over time and per finding with no
+        # extra query and no new endpoint — where fetching them per run would be
+        # an N+1 against the same rows.
+        fields = ("run_id", "target", "status", "created_at", "completed_at",
                   "hunt_id", "session_id", "workspace_id",
-                  "session_name", "workspace_name")
+                  "session_name", "workspace_name",
+                  "cost_usd", "total_tokens", "budget_usd")
 
     def get_session_id(self, obj):
         return _sid(obj.session_id)

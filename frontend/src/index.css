@@ -108,6 +108,29 @@ body {
 .animate-slide-in { animation: slide-in-right 0.25s ease-out; }
 .animate-scale-in { animation: scale-in 0.15s ease-out; }
 
+/* ── Reduced motion ──
+   Reduced does NOT mean none. MDN and the Apple HIG both say the same thing:
+   the setting asks you to remove *movement*, not feedback. Deleting these
+   animations outright would strip the "something new appeared" cue that a
+   modal, toast or panel depends on. So every animation that translates or
+   scales degrades to a plain cross-fade, which conveys the same arrival with
+   no vestibular trigger.
+
+   Deliberately left alone:
+   • .animate-pulse-dot — already opacity-only, and it is the sole indicator
+     that a run is live.
+   • .animate-spin — the only signal that a request is in flight; removing it
+     leaves a static shape that reads as a stalled UI. */
+@keyframes fade-in-static {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in  { animation: fade-in-static 0.2s ease-out; }
+  .animate-slide-in { animation: fade-in-static 0.25s ease-out; }
+  .animate-scale-in { animation: fade-in-static 0.15s ease-out; }
+}
+
 /* ── Skeleton shimmer ── */
 .rw-skeleton {
   position: relative;
@@ -217,7 +240,10 @@ body {
   pointer-events: none;
 }
 .huntReportInfographic__header {
-  @apply relative z-[1] flex items-center justify-between gap-3 px-4 py-3 border-b border-white/[0.06];
+  /* flex-wrap matters: the export group holds eight buttons and is shrink-0, so
+     without it the group overflows and the title — which has min-w-0 and so is
+     allowed to shrink below its content — paints straight over the buttons. */
+  @apply relative z-[1] flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-3 border-b border-white/[0.06];
 }
 .huntReportInfographic__body {
   @apply relative z-[1] px-4 py-4 max-h-[min(70vh,780px)] overflow-y-auto;
