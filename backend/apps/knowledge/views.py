@@ -6,6 +6,9 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from apps.common.permissions import RoleWritePermission
+from apps.common.redaction import scrub_secrets
+
 from .models import KbChunk, KbEmbeddingConfig
 from .search import kb_search
 
@@ -127,7 +130,9 @@ def knowledge_ask(request):
         llm = _build_crewai_llm(lf, kp.get_all())
         answer = llm.call([{"role": "user", "content": prompt}])
     except Exception as exc:  # noqa: BLE001
-        return Response({"error": str(exc)}, status=500)
+        # Provider errors echo back credential fragments (an OpenAI 401 includes
+        # a partial key) — scrub before this reaches the caller.
+        return Response({"error": scrub_secrets(str(exc))}, status=500)
     sources = sorted({h["file"] for h in hits})
     return Response({"answer": str(answer), "sources": sources, "question": question})
 
@@ -163,11 +168,14 @@ def knowledge_query(request):
 
 
 @api_view(["GET", "POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, RoleWritePermission])
 def embedding_config(request):
     """GET the global embedding config (+ provider/model options & re-index status);
     POST to update provider/model/device. Changing these does NOT re-embed — the
-    caller must trigger /api/knowledge/reindex afterwards."""
+    caller must trigger /api/knowledge/reindex afterwards.
+
+    The config is a process-wide singleton shared by every user, so writes are
+    role-gated (``viewer`` accounts are read-only); reads stay open."""
     cfg = KbEmbeddingConfig.get_solo()
     if request.method == "POST":
         data = request.data or {}
@@ -185,10 +193,19 @@ def embedding_config(request):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, RoleWritePermission])
 def reindex_knowledge(request):
     """Kick off a background re-index with the active embedding config.
-    Auto-detects the model dimension, retypes the pgvector column, re-embeds."""
+    Auto-detects the model dimension, retypes the pgvector column, re-embeds.
+
+    This retypes a shared pgvector column and can run for hours for *every*
+    user, so it is staff-only — an ordinary account cannot trigger it."""
+    user = request.user
+    if not (getattr(user, "is_staff", False) or getattr(user, "is_superuser", False)):
+        return Response(
+            {"error": "Re-indexing the knowledge base is restricted to staff."},
+            status=403,
+        )
     cfg = KbEmbeddingConfig.get_solo()
     if cfg.status == KbEmbeddingConfig.STATUS_RUNNING:
         return Response(

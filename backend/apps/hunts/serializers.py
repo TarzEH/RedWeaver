@@ -1,6 +1,8 @@
 """Serializers for hunts — shapes match the existing frontend contract."""
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
 
+from apps.common.access import scoped_get_or_404, session_scope_q, target_scope_q
 from apps.findings.serializers import FindingSerializer
 
 from .models import NotificationChannel, Run, Schedule, Session, Target
@@ -261,10 +263,33 @@ class HuntCreateSerializer(serializers.Serializer):
 
     def create(self, validated):
         request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if not getattr(user, "is_authenticated", False):
+            user = None
+
         target_ids = validated.get("target_ids") or []
-        target_obj = Target.objects.filter(id__in=target_ids).first() if target_ids else None
-        session = Session.objects.filter(id=validated["session_id"]).first() \
-            if validated.get("session_id") else None
+        session_id = validated.get("session_id")
+
+        # The caller names the session/target by id, so both must go through the
+        # access scope. Unscoped lookups let anyone plant a run inside a
+        # stranger's session and read their target address back out of the 201
+        # body — and then /start a real scan against their infrastructure.
+        # An id outside the caller's scope must 404, never fall through to None:
+        # a None target would still create the run, just unattributed.
+        if (target_ids or session_id) and user is None:
+            raise PermissionDenied("Authentication is required to reference a session or target.")
+
+        session = (
+            scoped_get_or_404(Session, user, session_scope_q, id=session_id)
+            if session_id else None
+        )
+        target_obj = None
+        if target_ids:
+            for tid in target_ids:
+                scoped_get_or_404(Target, user, target_scope_q, id=tid)
+            # Every id is now proven in scope; re-query so selection among several
+            # stays what it always was (Target.Meta ordering — newest of the set).
+            target_obj = Target.objects.filter(id__in=target_ids).first()
 
         # Resolve the ATT&CK focus: explicit techniques win; otherwise parse a
         # Navigator layer if one was supplied.
@@ -284,7 +309,7 @@ class HuntCreateSerializer(serializers.Serializer):
             session=session,
             target_obj=target_obj,
             workspace=(session.workspace if session else None),
-            created_by=(request.user if request and request.user.is_authenticated else None),
+            created_by=user,
             target=(target_obj.address_string() if target_obj else ""),
             objective=validated.get("objective", "comprehensive"),
             agent_selection=validated.get("agent_selection", []),

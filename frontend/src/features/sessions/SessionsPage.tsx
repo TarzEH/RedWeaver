@@ -10,7 +10,7 @@ import { Input } from "../../components/ui/Input";
 import { Badge } from "../../components/ui/Badge";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { IconButton } from "../../components/ui/IconButton";
-import { Spinner } from "../../components/ui/Spinner";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { useConfirm } from "../../components/ui/feedback";
 import { api } from "../../services/api";
@@ -300,7 +300,18 @@ function SessionDetail({
       </div>
 
       {loading ? (
-        <Spinner label="Loading..." />
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-16 w-full rounded-xl" />
+            ))}
+          </div>
+          <div className="space-y-2">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-16 w-full rounded-xl" />
+            ))}
+          </div>
+        </div>
       ) : (
         <>
           {/* ── Targets ── */}
@@ -358,7 +369,7 @@ function SessionDetail({
                         label="Delete target"
                         variant="danger"
                         size="sm"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                         onClick={() => deleteTarget(t.id)}
                       />
                     </div>
@@ -427,7 +438,7 @@ function SessionDetail({
                         label="Delete hunt"
                         variant="danger"
                         size="sm"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                         onClick={() => deleteHunt(h.id)}
                       />
                     </div>
@@ -544,7 +555,11 @@ export function SessionsPage() {
           )}
 
           {loading ? (
-            <Spinner label="Loading..." />
+            <div className="space-y-1">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-11 w-full rounded-lg" />
+              ))}
+            </div>
           ) : workspaces.length === 0 ? (
             <Card>
               <EmptyState icon={<Layers size={20} />} title="No workspaces" compact
@@ -554,29 +569,42 @@ export function SessionsPage() {
           ) : (
             <div className="space-y-1">
               {workspaces.map((ws) => (
-                <button
+                /* Row is a div, not a button: it contains the Delete button and
+                   nesting one <button> inside another is invalid and breaks
+                   keyboard traversal. Same pattern as the session rows below. */
+                <div
                   key={ws.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={activeWorkspace?.id === ws.id}
+                  aria-label={`Open workspace ${ws.name}`}
                   onClick={() => selectWorkspace(ws)}
-                  className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors group flex items-center gap-2 ${
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      selectWorkspace(ws);
+                    }
+                  }}
+                  className={`w-full cursor-pointer text-left px-3 py-2.5 rounded-lg transition-colors group flex items-center gap-2 outline-none focus-visible:ring-2 focus-visible:ring-rw-accent ${
                     activeWorkspace?.id === ws.id
                       ? "bg-rw-accent/10 text-rw-accent border border-rw-accent/20"
                       : "text-rw-muted hover:bg-rw-surface border border-transparent"
                   }`}
                 >
-                  <Layers size={14} className="shrink-0" />
+                  <Layers size={14} className="shrink-0" aria-hidden />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium truncate">{ws.name}</div>
                     {ws.description && <div className="text-[10px] text-rw-dim truncate">{ws.description}</div>}
                   </div>
                   <IconButton
                     icon={<Trash2 size={11} />}
-                    label="Delete"
+                    label={`Delete workspace ${ws.name}`}
                     variant="danger"
                     size="sm"
-                    className="opacity-0 group-hover:opacity-100 shrink-0"
+                    className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                     onClick={(e) => deleteWorkspace(ws.id, e)}
                   />
-                </button>
+                </div>
               ))}
             </div>
           )}
@@ -667,7 +695,7 @@ export function SessionsPage() {
                           label="Delete session"
                           variant="danger"
                           size="sm"
-                          className="opacity-0 group-hover:opacity-100 shrink-0"
+                          className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                           onClick={(e) => deleteSession(s.id, e)}
                         />
                       </div>

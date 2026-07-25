@@ -1,3 +1,5 @@
+import { cn } from "../../lib/cn";
+
 type BadgeVariant = "default" | "accent" | "success" | "danger" | "warning" | "info";
 
 interface BadgeProps {
@@ -29,15 +31,21 @@ const dotColors: Record<BadgeVariant, string> = {
 export function Badge({ children, variant = "default", dot, pulseDot, className = "" }: BadgeProps) {
   return (
     <span
-      className={`
-        inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full
-        text-[10px] font-semibold uppercase tracking-wide
-        ${variantStyles[variant]} ${className}
-      `}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5",
+        "text-[10px] font-semibold uppercase tracking-wide",
+        variantStyles[variant],
+        className,
+      )}
     >
       {dot && (
         <span
-          className={`w-1.5 h-1.5 rounded-full ${dotColors[variant]} ${pulseDot ? "animate-pulse-dot" : ""}`}
+          aria-hidden
+          className={cn(
+            "h-1.5 w-1.5 shrink-0 rounded-full",
+            dotColors[variant],
+            pulseDot && "animate-pulse-dot",
+          )}
         />
       )}
       {children}

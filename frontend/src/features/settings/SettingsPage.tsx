@@ -2,6 +2,9 @@ import { useEffect, useState, useCallback } from "react";
 import { CheckCircle, XCircle, Wrench, Zap } from "lucide-react";
 import { Card, CardHeader } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
+import { Skeleton } from "../../components/ui/Skeleton";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { useToast } from "../../components/ui/feedback";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { ProviderModelSelector } from "../../components/domain/ProviderModelSelector";
 import { EmbeddingSettingsCard } from "./EmbeddingSettingsCard";
@@ -19,8 +22,9 @@ export function SettingsPage() {
   const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([]);
   const [ollamaHealth, setOllamaHealth] = useState<"connected" | "disconnected" | "checking">("checking");
   const [tools, setTools] = useState<ToolInfo[]>([]);
+  const [toolsLoading, setToolsLoading] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const toast = useToast();
   const [dynamicModels, setDynamicModels] = useState<Record<string, { value: string; label: string }[]>>({});
 
   const defaultModels: Record<string, string> = {};
@@ -61,7 +65,8 @@ export function SettingsPage() {
         }
         setTools(allTools);
       })
-      .catch(() => setTools([]));
+      .catch(() => setTools([]))
+      .finally(() => setToolsLoading(false));
   }, []);
 
   const fetchModelsForProvider = useCallback((provider: string) => {
@@ -121,7 +126,7 @@ export function SettingsPage() {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true); setMessage(null);
+    setLoading(true);
     try {
       const body: Record<string, unknown> = {};
       if (openaiKey) body.openai_api_key = openaiKey;
@@ -133,25 +138,25 @@ export function SettingsPage() {
       if (selectedModel) body.selected_model = selectedModel;
       const data = await api.settings.saveKeys(body);
       setStatus(data); setOpenaiKey(""); setAnthropicKey(""); setGoogleKey("");
-      setMessage({ text: "Settings saved successfully.", type: "success" });
+      toast.success("Settings saved successfully.");
       if (data.openai_configured) fetchModelsForProvider("openai");
       if (data.anthropic_configured) fetchModelsForProvider("anthropic");
       if (data.google_configured) fetchModelsForProvider("google");
       if (effectiveProvider === "ollama") fetchOllamaModels();
     } catch (err: unknown) {
-      setMessage({ text: `Error: ${err instanceof Error ? err.message : "Unknown error"}`, type: "error" });
+      toast.error(`Could not save settings: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally { setLoading(false); }
   };
 
   const handleClear = async () => {
-    setLoading(true); setMessage(null);
+    setLoading(true);
     try {
       const data = await api.settings.saveKeys({ clear: true });
       setStatus(data); setActiveProvider("openai"); setOllamaUrl(""); setOllamaModels([]); setDynamicModels({});
       setProviderModels({ ...defaultModels });
-      setMessage({ text: "All settings cleared.", type: "success" });
+      toast.success("All settings cleared.");
     } catch (err: unknown) {
-      setMessage({ text: `Error: ${err instanceof Error ? err.message : "Unknown error"}`, type: "error" });
+      toast.error(`Could not clear settings: ${err instanceof Error ? err.message : "Unknown error"}`);
     } finally { setLoading(false); }
   };
 
@@ -204,12 +209,6 @@ export function SettingsPage() {
               Clear all
             </Button>
           </div>
-
-          {message && (
-            <p className={`text-sm mt-3 ${message.type === "error" ? "text-red-400" : "text-emerald-400"}`}>
-              {message.text}
-            </p>
-          )}
         </Card>
       </form>
 
@@ -221,9 +220,24 @@ export function SettingsPage() {
         <CardHeader
           icon={<Wrench size={18} />}
           title="Security Tools"
-          subtitle={`CLI tools in the Docker container. ${availableTools.length} of ${tools.length} installed.`}
+          subtitle={
+            toolsLoading
+              ? "CLI tools in the Docker container."
+              : `CLI tools in the Docker container. ${availableTools.length} of ${tools.length} installed.`
+          }
         />
-        {tools.length > 0 ? (
+        {toolsLoading ? (
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="space-y-2">
+                <Skeleton className="h-3 w-24" />
+                <Skeleton className="h-3 w-full" />
+                <Skeleton className="h-3 w-4/5" />
+                <Skeleton className="h-3 w-3/5" />
+              </div>
+            ))}
+          </div>
+        ) : tools.length > 0 ? (
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
             {categories.map((cat) => {
               const catTools = tools.filter((t) => t.category === cat);
@@ -236,12 +250,15 @@ export function SettingsPage() {
                     {catTools.map((tool) => (
                       <div key={tool.name} className="flex items-center gap-2 text-xs py-0.5" title={tool.description}>
                         {tool.available ? (
-                          <CheckCircle size={12} className="text-emerald-400 shrink-0" />
+                          <CheckCircle size={12} className="text-emerald-400 shrink-0" aria-hidden />
                         ) : (
-                          <XCircle size={12} className="text-red-400/50 shrink-0" />
+                          <XCircle size={12} className="text-red-400/70 shrink-0" aria-hidden />
                         )}
                         <span className={tool.available ? "text-rw-text" : "text-rw-dim"}>
                           {tool.name.replace(/_/g, " ")}
+                        </span>
+                        <span className="sr-only">
+                          {tool.available ? "installed" : "not installed"}
                         </span>
                       </div>
                     ))}
@@ -251,7 +268,12 @@ export function SettingsPage() {
             })}
           </div>
         ) : (
-          <p className="text-xs text-rw-dim/50">Loading tools...</p>
+          <EmptyState
+            compact
+            icon={<Wrench size={24} />}
+            title="No tools reported"
+            description="The backend container did not return a tool inventory."
+          />
         )}
       </Card>
     </div>

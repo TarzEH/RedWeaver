@@ -9,6 +9,8 @@ from typing import Type
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
+from redweaver_engine.tools.file_io.safety import PathValidator
+
 
 class FileReaderInput(BaseModel):
     """Input schema for file read operations."""
@@ -19,10 +21,18 @@ class FileReaderInput(BaseModel):
 
 
 class FileReaderTool(BaseTool):
-    """Read the contents of a file.
+    """Read the contents of a file, within the agent's allowed directories.
 
     Supports reading full files or specific line ranges.
     Truncates output for very large files.
+
+    Reads are constrained by the same :class:`PathValidator` allow-list as
+    writes. This tool is attached to ``report_writer`` and ``post_exploit``,
+    whose context contains text scraped from the target under assessment — i.e.
+    attacker-controlled by design. Unvalidated, an injected instruction could
+    have it read ``/proc/self/environ``, ``redweaver/settings/base.py`` or any
+    mounted secret and echo the contents straight into the report. Exfiltration
+    needs no restart, so the read side matters at least as much as the write.
     """
 
     name: str = "file_reader"
@@ -39,7 +49,12 @@ class FileReaderTool(BaseTool):
         end_line: int = 0,
     ) -> str:
         try:
-            path = Path(file_path)
+            try:
+                validated = PathValidator.validate(file_path)
+            except ValueError as exc:
+                return json.dumps({"status": "failed", "error": str(exc)})
+
+            path = Path(validated)
             if not path.exists():
                 return json.dumps({"status": "failed", "error": f"File not found: {file_path}"})
             if not path.is_file():
@@ -65,7 +80,7 @@ class FileReaderTool(BaseTool):
 
             result = {
                 "status": "success",
-                "file_path": file_path,
+                "file_path": validated,
                 "total_lines": total_lines,
                 "content": content,
             }

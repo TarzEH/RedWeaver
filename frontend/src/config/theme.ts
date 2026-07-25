@@ -3,17 +3,24 @@
  * status labels, severity styling, and UI constants.
  */
 
-import type { Severity } from "../types/api";
+import type { RunStatus, Severity } from "../types/api";
 
 // --- Run Status ---
 
-export type RunStatus = "running" | "completed" | "failed" | "queued" | "idle";
-
+// RunStatus is imported from types/api.ts (single source of truth). This file
+// used to redeclare its own narrower copy, which silently fell through to the
+// grey "Idle" styling — so a hunt the operator stopped, or one halted by its
+// budget ceiling, rendered as if it had never started. Typing the record as a
+// total Record<RunStatus, …> makes the next added status a compile error here.
 const STATUS_CONFIG: Record<RunStatus, { label: string; color: string; bg: string; dot: string }> = {
   running:   { label: "Running",   color: "#60a5fa", bg: "rgba(96,165,250,0.12)", dot: "bg-blue-400" },
   completed: { label: "Completed", color: "#34d399", bg: "rgba(52,211,153,0.12)", dot: "bg-emerald-400" },
   failed:    { label: "Failed",    color: "#f87171", bg: "rgba(248,113,113,0.12)", dot: "bg-red-400" },
   queued:    { label: "Queued",    color: "#a78bfa", bg: "rgba(167,139,250,0.12)", dot: "bg-violet-400" },
+  // Deliberately halted — by the operator or by the run's spend ceiling. Amber,
+  // not red: the findings gathered so far are real, the run just ended early.
+  cancelled: { label: "Stopped",   color: "#fbbf24", bg: "rgba(251,191,36,0.12)", dot: "bg-amber-400" },
+  paused:    { label: "Paused",    color: "#94a3b8", bg: "rgba(148,163,184,0.12)", dot: "bg-slate-400" },
   idle:      { label: "Idle",      color: "#64748b", bg: "rgba(100,116,139,0.12)", dot: "bg-slate-400" },
 };
 

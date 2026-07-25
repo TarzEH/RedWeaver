@@ -2,23 +2,16 @@
 
 These run inside the Celery worker (sync). They are the bridge between the
 unchanged CrewAIEventBridge event stream and the observability tables.
+
+The two decision helpers at the top of this module — :func:`tool_status` and
+:func:`chain_step_matches` — are pure and carry logic that is security-relevant
+(an audit status; what evidence gets attached to an attack chain). They are unit
+tested without a database, so this module must import without Django: every
+Django/ORM import below is made lazily inside the function that needs it.
 """
 import logging
 
-from django.db.models import Max
-from django.utils import timezone
-
-from apps.findings.models import Finding
-
 from .confidence import derive_confidence
-from .models import (
-    AgentStep,
-    AgentTransition,
-    GraphSnapshot,
-    HuntflowNode,
-    Screenshot,
-    ToolExecution,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +25,64 @@ _STEP_TYPE = {
     "finding": "finding",
 }
 
+# Adapter status vocabulary -> ToolStatus. "blocked" is the scope/SSRF guard
+# refusing a target before the tool ran; it must survive as its own value.
 _TOOL_STATUS = {
     "success": "success", "completed": "success", "ok": "success",
     "error": "error", "failed": "error",
     "timeout": "timeout", "unavailable": "unavailable",
+    "blocked": "blocked",
+    "running": "running",
 }
+
+
+def tool_status(raw) -> str:
+    """Map an adapter status onto a :class:`ToolStatus` value.
+
+    Anything unrecognised becomes ``error``, never ``success``: this row is an
+    audit record, and a status we cannot interpret is not evidence that the tool
+    succeeded. The old ``success`` default is what recorded every guard-blocked
+    call — the one proof the SSRF guard fired — as a clean success.
+    """
+    # Anything non-str (a missing key, or a payload defect) is unrecognisable by
+    # construction — and must not reach dict.get(), which raises on unhashables.
+    key = raw.strip().lower() if isinstance(raw, str) else None
+    mapped = _TOOL_STATUS.get(key)
+    if mapped is None:
+        logger.warning(
+            "unrecognised tool status %r; recording as 'error'", raw
+        )
+        return "error"
+    return mapped
+
+
+# A chain step shorter than this is a bare category noun ("ssh", "xss", "port")
+# once normalization has stripped its digits — matching on it attaches every
+# finding in that category to the chain. ~12 chars is about three real words,
+# enough for a step to name one specific finding rather than a class of them.
+_MIN_CHAIN_STEP_CHARS = 12
+
+
+def chain_step_matches(step: str, title: str, normalize=None) -> bool:
+    """True when an attack-chain step and a finding title denote the same thing.
+
+    Both sides are normalized the same way the finding dedup keys are, then
+    compared by containment in either direction — the analyst may write a step
+    that quotes the title, or a title that quotes the step. Either side falling
+    under the length floor is treated as too generic to link on.
+    """
+    norm = normalize or _norm_title
+    s, t = norm(step or ""), norm(title or "")
+    if len(s) < _MIN_CHAIN_STEP_CHARS or len(t) < _MIN_CHAIN_STEP_CHARS:
+        return False
+    return s in t or t in s
+
+
+def _norm_title(value: str) -> str:
+    """Reuse the Finding normalizer so chain links and dedup agree on wording."""
+    from apps.findings.models import Finding
+
+    return Finding._norm_title(value)
 
 
 def record_event(run, event_type: str, data: dict, seq: int) -> None:
@@ -75,12 +121,24 @@ def _attack_chain(run, data) -> None:
         severity=(data.get("severity") or "high").lower(),
         steps=data.get("steps") or [],
     )
-    # Link findings whose title appears in a chain step (best-effort).
-    titles = [s.lower() for s in (data.get("steps") or []) if isinstance(s, str)]
-    if titles:
-        for f in Finding.objects.filter(run=run):
-            if any(f.title.lower() in step or step in f.title.lower() for step in titles):
-                ch.findings.add(f)
+    # Link findings a chain step actually names (best-effort). Normalized on
+    # both sides and floored in length, so a step like "ssh" no longer drags in
+    # every finding whose title happens to mention it.
+    steps = [
+        s
+        for s in (data.get("steps") or [])
+        # Normalization only ever shortens, so the raw length is a sound (and
+        # free) pre-filter for the floor enforced inside chain_step_matches.
+        if isinstance(s, str) and len(s) >= _MIN_CHAIN_STEP_CHARS
+    ]
+    if steps:
+        matched = [
+            f
+            for f in Finding.objects.filter(run=run).only("id", "title")
+            if any(chain_step_matches(s, f.title) for s in steps)
+        ]
+        if matched:
+            ch.findings.add(*matched)
 
 
 def _false_positives(run, data) -> None:
@@ -95,6 +153,8 @@ def _false_positives(run, data) -> None:
 
 
 def _agent_step(run, event_type, data, seq) -> None:
+    from .models import AgentStep, AgentTransition
+
     agent = str(data.get("agent") or data.get("agent_source") or "")
     reasoning = ""
     summary = ""
@@ -132,6 +192,8 @@ def _agent_step(run, event_type, data, seq) -> None:
 
 
 def _graph_snapshot(run, data, seq) -> None:
+    from .models import GraphSnapshot
+
     GraphSnapshot.objects.create(
         run=run,
         sequence=seq,
@@ -145,6 +207,7 @@ def _graph_snapshot(run, data, seq) -> None:
 
 
 def _finding(run, data) -> None:
+    from apps.findings.models import Finding
     from apps.findings.noise import downgrade_expected_noise
 
     # Truthfully rank bare expected-port observations as informational before persist.
@@ -216,6 +279,8 @@ def _incoming_uuid(value):
 
 
 def _huntflow_added(run, data, seq) -> None:
+    from .models import HuntflowNode
+
     parent = None
     if data.get("parent_id"):
         parent = HuntflowNode.objects.filter(
@@ -234,12 +299,18 @@ def _huntflow_added(run, data, seq) -> None:
 
 
 def _huntflow_completed(run, data) -> None:
+    from django.utils import timezone
+
+    from .models import HuntflowNode
+
     HuntflowNode.objects.filter(run=run, node_id=data.get("id")).update(
         completed_at=timezone.now(), duration_ms=data.get("duration_ms")
     )
 
 
 def _screenshot(run, data) -> None:
+    from .models import Screenshot
+
     Screenshot.objects.create(
         run=run,
         agent_name=data.get("agent") or "",
@@ -265,8 +336,12 @@ def tool_recorder(payload: dict):
         return None
     try:
         from django.db import transaction
+        from django.db.models import Max
+        from django.utils import timezone
 
         from apps.hunts.models import Run
+
+        from .models import ToolExecution
         # Allocate the per-run sequence under a row lock so concurrent (async)
         # tool calls can't collide on the same ToolExecution.sequence.
         with transaction.atomic():
@@ -292,7 +367,7 @@ def tool_recorder(payload: dict):
             exit_code=payload.get("exit_code"),
             parsed_result=payload.get("parsed_result"),
             truncated_for_llm=payload.get("truncated_for_llm") or "",
-            status=_TOOL_STATUS.get(payload.get("status"), "success"),
+            status=tool_status(payload.get("status")),
             error=payload.get("error") or "",
             duration_ms=payload.get("duration_ms"),
             started_at=timezone.now(),

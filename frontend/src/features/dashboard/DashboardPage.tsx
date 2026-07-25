@@ -19,8 +19,10 @@ import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { StatusBadge } from "../../components/ui/StatusBadge";
 import { SeverityBadge } from "../../components/ui/SeverityBadge";
+import { isRuledOut } from "../../components/ui/FindingStatusBadge";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Skeleton } from "../../components/ui/Skeleton";
+import { Table, THead, TBody, TH, TR, TD } from "../../components/ui/Table";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { api } from "../../services/api";
 import type { RunSummary, Finding } from "../../types/api";
@@ -84,7 +86,13 @@ export function DashboardPage() {
       ),
     )
       // Overlapping polls can resolve out of order — drop superseded responses.
-      .then((results) => { if (!ignore) setAllFindings(results.flat()); })
+      // Findings the verifier refuted are excluded here, the same way the report
+      // and the triage page exclude them. Otherwise the dashboard headlines a
+      // finding as CRITICAL while the findings page shows it struck through as
+      // ruled out — and the portfolio-level severity counts overstate the risk.
+      .then((results) => {
+        if (!ignore) setAllFindings(results.flat().filter((f) => !isRuledOut(f.status)));
+      })
       .finally(() => {
         if (ignore) return;
         findingsFetchedRef.current = true;
@@ -334,7 +342,15 @@ export function DashboardPage() {
 
       {/* Hunt List */}
       <h2 className="text-sm font-medium text-rw-muted uppercase tracking-wider mb-3">Hunts</h2>
-      {runs.length === 0 ? (
+      {/* `runsLoading` only ever goes true → false on the first load, so the
+          5s poll can never flip this back to a skeleton. */}
+      {runsLoading ? (
+        <Card padding="sm" className="space-y-2">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Skeleton key={i} className="h-9 w-full" />
+          ))}
+        </Card>
+      ) : runs.length === 0 ? (
         <Card>
           <EmptyState
             icon={<Target size={32} />}
@@ -343,21 +359,24 @@ export function DashboardPage() {
           />
         </Card>
       ) : (
-        <Card padding="none">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-rw-border">
-                <th className="text-left text-xs text-rw-dim font-medium py-2.5 px-4">Status</th>
-                <th className="text-left text-xs text-rw-dim font-medium py-2.5 px-4">Target</th>
-                <th className="text-left text-xs text-rw-dim font-medium py-2.5 px-4">Created</th>
-                <th className="text-left text-xs text-rw-dim font-medium py-2.5 px-4">Run ID</th>
-                <th className="w-10" />
+        <Card padding="none" className="overflow-hidden">
+          <Table>
+            <THead>
+              <tr>
+                <TH>Status</TH>
+                <TH>Target</TH>
+                <TH>Created</TH>
+                <TH>Run ID</TH>
+                <TH className="w-10">
+                  <span className="sr-only">Open</span>
+                </TH>
               </tr>
-            </thead>
-            <tbody>
+            </THead>
+            <TBody>
               {runs.map((run) => (
-                <tr
+                <TR
                   key={run.run_id}
+                  interactive
                   role="button"
                   tabIndex={0}
                   aria-label={`Open hunt for ${run.target}`}
@@ -368,21 +387,22 @@ export function DashboardPage() {
                       navigate(`/hunt/${run.run_id}`);
                     }
                   }}
-                  className="border-b border-rw-border-subtle hover:bg-rw-surface cursor-pointer transition-colors outline-none focus-visible:ring-2 focus-visible:ring-rw-accent focus-visible:ring-inset"
                 >
-                  <td className="py-2.5 px-4">
+                  <TD>
                     <StatusBadge status={run.status} />
-                  </td>
-                  <td className="py-2.5 px-4 text-rw-text font-mono text-xs">{run.target}</td>
-                  <td className="py-2.5 px-4 text-rw-dim">{formatRelativeDate(run.created_at)}</td>
-                  <td className="py-2.5 px-4 text-rw-dim font-mono text-xs">{run.run_id.slice(0, 8)}</td>
-                  <td className="py-2.5 px-4">
-                    <ExternalLink size={14} className="text-rw-dim" />
-                  </td>
-                </tr>
+                  </TD>
+                  <TD className="font-mono text-xs text-rw-text">{run.target}</TD>
+                  <TD className="text-rw-dim">{formatRelativeDate(run.created_at)}</TD>
+                  <TD className="font-mono text-xs tabular-nums text-rw-dim">
+                    {run.run_id.slice(0, 8)}
+                  </TD>
+                  <TD>
+                    <ExternalLink size={14} aria-hidden className="text-rw-dim" />
+                  </TD>
+                </TR>
               ))}
-            </tbody>
-          </table>
+            </TBody>
+          </Table>
         </Card>
       )}
     </div>

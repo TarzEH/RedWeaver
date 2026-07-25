@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { getApiBase, getWsBase } from "../config/theme";
 import { getToken } from "../services/http";
 import { useSSE } from "./useSSE";
-import type { Finding } from "../types/api";
+import type { AgentStepType, Finding, RunDetail } from "../types/api";
 import type {
   ReasoningStep,
   SSEEventType,
@@ -23,6 +23,24 @@ import {
   EVENT_SUBAGENT_SPAWN,
   EVENT_TODO_UPDATE,
 } from "../types/events";
+
+/**
+ * Persisted step kind -> timeline event type. The DB stores the backend
+ * `StepType` vocabulary, which is not identical to the SSE event names
+ * ("thinking" vs "agent_thinking", "handoff" vs "agent_handoff"), so hydrated
+ * steps have to be translated or the UI filters/labels them wrong.
+ * Exhaustive by construction: a new backend StepType breaks the build here.
+ */
+const PERSISTED_STEP_TYPE: Record<AgentStepType, SSEEventType> = {
+  agent_start: EVENT_AGENT_START,
+  thinking: EVENT_AGENT_THINKING,
+  tool_call: EVENT_TOOL_CALL,
+  tool_result: EVENT_TOOL_RESULT,
+  agent_complete: EVENT_AGENT_COMPLETE,
+  handoff: EVENT_AGENT_HANDOFF,
+  finding: EVENT_FINDING,
+  error: EVENT_HUNT_ERROR,
+};
 
 interface RunStreamState {
   steps: ReasoningStep[];
@@ -345,7 +363,10 @@ export function useRunStream(runId: string | null, enabled: boolean = true) {
     [flushThinkingQueue]
   );
 
-  const { connected } = useSSE({
+  // `authError` is set when the server rejected the socket (expired/foreign token)
+  // and we stopped retrying — exposed so the UI can say so instead of showing an
+  // eternally "connecting" stream.
+  const { connected, authError } = useSSE({
     url,
     onEvent,
   });
@@ -358,32 +379,43 @@ export function useRunStream(runId: string | null, enabled: boolean = true) {
     let cancelled = false;
 
     fetch(`${base}/api/runs/${runId}`)
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => (res.ok ? (res.json() as Promise<RunDetail>) : null))
       .then((run) => {
         if (cancelled || !run?.graph_state) return;
         if (run.run_id !== expectedId) return;
 
         const gs = run.graph_state;
-        const isTerminal = run.status === "completed" || run.status === "failed";
+        // "cancelled" covers Stop and budget-exceeded aborts; the backend emits no
+        // terminal event for them, so hydration is the only place we learn the run
+        // ended — without it the UI stays "mid-execution" forever.
+        const isTerminal =
+          run.status === "completed" ||
+          run.status === "failed" ||
+          run.status === "cancelled";
 
         setState((prev) => {
-          const hydratedFindings: Finding[] = [];
-          for (const f of gs.findings || []) {
-            hydratedFindings.push(f as unknown as Finding);
-          }
+          const hydratedFindings: Finding[] = [...(gs.findings || [])];
 
           const rawPersisted = gs.steps;
           let restoredSteps: ReasoningStep[] = [];
 
           if (Array.isArray(rawPersisted) && rawPersisted.length > 0) {
-            restoredSteps = rawPersisted.map((s: Record<string, unknown>) => ({
-              id: String(s.id ?? `h-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
-              agent: String(s.agent ?? "unknown"),
-              type: (String(s.type || EVENT_AGENT_START)) as SSEEventType,
-              content: String(s.content ?? ""),
-              tool: s.tool != null && s.tool !== "" ? String(s.tool) : undefined,
-              timestamp: typeof s.timestamp === "number" ? s.timestamp : Date.now(),
-            }));
+            // Keys here are the REST serializer's (agent/action/result/timestamp),
+            // NOT the SSE event's (agent/type/content) — the two payloads describe
+            // the same steps with different field names. `tool` is not persisted at
+            // all, so it stays undefined rather than being invented.
+            restoredSteps = rawPersisted.map((s, i) => {
+              const parsedTs = s.timestamp ? Date.parse(s.timestamp) : NaN;
+              return {
+                // Deterministic id: stable React keys across re-hydration, and no
+                // collision with the `${Date.now()}-${rand}` ids of live steps.
+                id: `persisted-${expectedId}-${i}`,
+                agent: s.agent || "unknown",
+                type: PERSISTED_STEP_TYPE[s.action] || EVENT_AGENT_START,
+                content: s.result ?? "",
+                timestamp: Number.isNaN(parsedTs) ? Date.now() : parsedTs,
+              };
+            });
           } else {
             for (const node of gs.completed_nodes || []) {
               if (node === "end") continue;
@@ -466,6 +498,7 @@ export function useRunStream(runId: string | null, enabled: boolean = true) {
   return {
     ...state,
     connected,
+    authError,
     reset,
   };
 }

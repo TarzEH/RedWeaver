@@ -4,6 +4,7 @@ Mirrors the legacy /api/settings/keys contract (KeysStatus / KeysUpdate).
 Secret values are never returned — only boolean "configured" flags.
 """
 import os
+from urllib.parse import urlparse
 
 import httpx
 from rest_framework.decorators import api_view, permission_classes
@@ -25,12 +26,45 @@ PROVIDER_MODELS = {
 }
 
 
-def _ollama_url(request) -> str:
-    return (
-        request.query_params.get("url")
-        or os.environ.get("OLLAMA_BASE_URL", "")
-        or "http://host.docker.internal:11434"
-    ).rstrip("/")
+def _ollama_url(request) -> tuple[str, str]:
+    """Resolve the Ollama base URL for this request.
+
+    Returns ``(url, error)``. ``error`` is non-empty when the caller supplied a
+    ``?url=`` that must not be fetched.
+
+    The endpoint exists so an operator can point RedWeaver at their own Ollama
+    host, but ``?url=`` is caller-controlled and the response is an SSRF oracle:
+    ``ollama_health`` returns a liveness boolean and ``ollama_models`` reflects
+    back parsed JSON. So a *user-supplied* URL is run through the same scan-scope
+    guard the tools use (blocks cloud-metadata, link-local and, by default,
+    loopback). The env-configured ``OLLAMA_BASE_URL`` and the compiled-in default
+    are operator-controlled, not caller-controlled, and are used as-is.
+    """
+    supplied = (request.query_params.get("url") or "").strip()
+    if not supplied:
+        fallback = (
+            os.environ.get("OLLAMA_BASE_URL", "").strip()
+            or "http://host.docker.internal:11434"
+        )
+        return fallback.rstrip("/"), ""
+
+    normalized = supplied if "://" in supplied else f"http://{supplied}"
+    parsed = urlparse(normalized)
+    if parsed.scheme not in ("http", "https"):
+        return "", f"unsupported URL scheme '{parsed.scheme}' (use http or https)"
+    if not parsed.hostname:
+        return "", "url is missing a host"
+
+    from redweaver_engine.tools.scope import check_target
+
+    allowed, reason = check_target(normalized)
+    if not allowed:
+        # Loopback is refused by default: "localhost" here means the RedWeaver
+        # container itself, not the caller's machine. A single-host deployment
+        # that really does run Ollama beside the worker sets RW_ALLOW_LOOPBACK=1.
+        return "", f"url rejected: {reason}"
+
+    return normalized.rstrip("/"), ""
 
 SECRET_FIELDS = [
     "openai_api_key", "anthropic_api_key", "google_api_key",
@@ -135,9 +169,13 @@ def provider_models(request, provider):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def ollama_health(request):
-    url = _ollama_url(request)
+    url, err = _ollama_url(request)
+    if err:
+        return Response({"error": err}, status=400)
     try:
-        r = httpx.get(f"{url}/api/tags", timeout=5)
+        # follow_redirects stays off: a 302 to 169.254.169.254 would otherwise
+        # walk straight past the scope check.
+        r = httpx.get(f"{url}/api/tags", timeout=5, follow_redirects=False)
         ok = r.status_code == 200
     except Exception:
         ok = False
@@ -147,9 +185,11 @@ def ollama_health(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def ollama_models(request):
-    url = _ollama_url(request)
+    url, err = _ollama_url(request)
+    if err:
+        return Response({"error": err}, status=400)
     try:
-        r = httpx.get(f"{url}/api/tags", timeout=5)
+        r = httpx.get(f"{url}/api/tags", timeout=5, follow_redirects=False)
         data = r.json()
         models = [
             {"name": m.get("name", ""), "size": m.get("size", 0)}

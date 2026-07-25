@@ -4,8 +4,10 @@ import { SeverityBadge } from "../../components/ui/SeverityBadge";
 import { FindingStatusBadge, isRuledOut } from "../../components/ui/FindingStatusBadge";
 import { Input } from "../../components/ui/Input";
 import { EmptyState } from "../../components/ui/EmptyState";
+import { Skeleton } from "../../components/ui/Skeleton";
 import { useHuntContext } from "../../contexts/HuntContext";
 import { api } from "../../services/api";
+import { cn } from "../../lib/cn";
 import type { Finding, Severity } from "../../types/api";
 
 interface FindingsPanelProps {
@@ -15,6 +17,13 @@ interface FindingsPanelProps {
 
 const ALL_SEVERITIES: Severity[] = ["critical", "high", "medium", "low", "info"];
 const SEV_PRIORITY: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+
+/** One pill treatment for every facet/toggle in this panel. */
+const pillCls = (active: boolean) =>
+  cn(
+    "rounded-full px-3 py-1 text-xs font-medium transition-colors",
+    active ? "bg-rw-accent/15 text-rw-accent" : "bg-rw-surface text-rw-dim hover:text-rw-muted",
+  );
 
 // SSVC decision colors (Act = remediate now ... Track = no action now).
 const SSVC_CLS: Record<string, string> = {
@@ -128,11 +137,17 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
           </div>
         </div>
         {loading ? (
-          <p className="text-xs text-rw-dim">Loading...</p>
+          <div className="space-y-1.5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-5 w-full" />
+            ))}
+          </div>
         ) : population.length === 0 ? (
-          <p className="text-xs text-rw-dim">
-            {findings.length === 0 ? "No findings yet." : `All ${ruledOutCount} findings ruled out.`}
-          </p>
+          <EmptyState
+            compact
+            icon={<Shield size={20} />}
+            title={findings.length === 0 ? "No findings yet" : `All ${ruledOutCount} findings ruled out`}
+          />
         ) : (
           <div className="space-y-1">
             {sorted.slice(0, 20).map((f) => (
@@ -186,26 +201,27 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
       {/* Filter pills */}
       <div className="flex flex-wrap gap-1.5 mb-4">
         <button
+          type="button"
           onClick={() => setFilter("all")}
-          className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-            filter === "all" ? "bg-rw-accent/15 text-rw-accent" : "bg-rw-surface text-rw-dim hover:text-rw-muted"
-          }`}
+          aria-pressed={filter === "all"}
+          className={pillCls(filter === "all")}
         >
           All ({counts.all})
         </button>
         {ALL_SEVERITIES.map((s) => (
           <button
             key={s}
+            type="button"
             onClick={() => setFilter(s)}
-            className={`px-3 py-1 rounded-full text-xs font-medium transition-colors capitalize ${
-              filter === s ? "bg-rw-accent/15 text-rw-accent" : "bg-rw-surface text-rw-dim hover:text-rw-muted"
-            }`}
+            aria-pressed={filter === s}
+            className={cn(pillCls(filter === s), "capitalize")}
           >
             {s} ({counts[s]})
           </button>
         ))}
         {ruledOutCount > 0 && (
           <button
+            type="button"
             onClick={() => setHideRuledOut((v) => !v)}
             aria-pressed={hideRuledOut}
             title={
@@ -213,11 +229,9 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
                 ? "Findings the verifier refuted are hidden — click to show them"
                 : "Findings the verifier refuted are shown — click to hide them"
             }
-            className={`ml-auto inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
-              hideRuledOut ? "bg-rw-accent/15 text-rw-accent" : "bg-rw-surface text-rw-dim hover:text-rw-muted"
-            }`}
+            className={cn(pillCls(hideRuledOut), "ml-auto inline-flex items-center gap-1.5")}
           >
-            {hideRuledOut ? <EyeOff size={12} /> : <Eye size={12} />}
+            {hideRuledOut ? <EyeOff size={12} aria-hidden /> : <Eye size={12} aria-hidden />}
             Hide ruled out ({ruledOutCount})
           </button>
         )}
@@ -232,13 +246,23 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
       )}
 
       {loading ? (
-        <p className="text-sm text-rw-dim">Loading findings...</p>
+        <div className="space-y-1">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-11 w-full rounded-xl" />
+          ))}
+        </div>
       ) : filtered.length === 0 ? (
-        <p className="text-sm text-rw-dim">
-          No findings{filter !== "all" ? ` with severity "${filter}"` : ""}
-          {searchQuery ? ` matching "${searchQuery}"` : ""}.
-          {excludingRuledOut ? ` ${ruledOutCount} ruled-out finding${ruledOutCount === 1 ? " is" : "s are"} hidden.` : ""}
-        </p>
+        <EmptyState
+          icon={<Shield size={28} />}
+          title={`No findings${filter !== "all" ? ` with severity "${filter}"` : ""}${
+            searchQuery ? ` matching "${searchQuery}"` : ""
+          }`}
+          description={
+            excludingRuledOut
+              ? `${ruledOutCount} ruled-out finding${ruledOutCount === 1 ? " is" : "s are"} hidden.`
+              : undefined
+          }
+        />
       ) : (
         <div className="space-y-1">
           {filtered.map((f) => {

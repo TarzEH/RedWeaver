@@ -1,6 +1,19 @@
 /** API response types for RedWeaver backend. */
 
-export type RunStatus = "queued" | "running" | "completed" | "failed" | "idle";
+/**
+ * Run lifecycle states. Mirrors the backend `RunStatus` choices
+ * (backend/apps/hunts/models.py) plus the frontend-only "idle" placeholder.
+ * `cancelled` covers both a user Stop and a budget-exceeded abort — omitting it
+ * left those runs looking like they were still executing forever.
+ */
+export type RunStatus =
+  | "queued"
+  | "running"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "idle";
 
 export interface RunSummary {
   run_id: string;
@@ -47,10 +60,38 @@ export interface RunDetail {
   workspace_name?: string;
 }
 
+/**
+ * Kinds of persisted agent step. Mirrors the backend `StepType` choices
+ * (backend/apps/observability/models.py) — note these are NOT the SSE event
+ * names: the backend persists "thinking"/"handoff" where the live stream sends
+ * "agent_thinking"/"agent_handoff".
+ */
+export type AgentStepType =
+  | "agent_start"
+  | "thinking"
+  | "tool_call"
+  | "tool_result"
+  | "agent_complete"
+  | "handoff"
+  | "finding"
+  | "error";
+
+/**
+ * A persisted agent step exactly as the REST API serializes it
+ * (backend/apps/hunts/serializers.py::_graph_state). The field names differ
+ * from the live SSE payload, and reading the wrong ones silently blanks the
+ * whole reasoning timeline on reload — so this type (not `Record<string,
+ * unknown>`) is what hydration must consume, making the next rename a compile
+ * error. No tool name is persisted here.
+ */
 export interface AgentStep {
+  /** `AgentStep.agent_name`; may be "" for steps written without an agent. */
   agent: string;
-  action: string;
+  /** `AgentStep.step_type` — a backend StepType value, not an SSE event type. */
+  action: AgentStepType;
+  /** `output_summary` or `reasoning_text`; "" when the step recorded neither. */
   result?: string;
+  /** ISO-8601 string (`created_at.isoformat()`), never an epoch number. */
   timestamp?: string;
 }
 

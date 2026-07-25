@@ -3,6 +3,8 @@ import { Crosshair, ExternalLink, X, Wand2, Upload } from "lucide-react";
 import { api } from "../../services/api";
 import type { AttackPlan } from "../../services/api";
 import { Button } from "../../components/ui/Button";
+import { IconButton } from "../../components/ui/IconButton";
+import { Textarea } from "../../components/ui/Input";
 import { Spinner } from "../../components/ui/Spinner";
 import { useToast } from "../../components/ui/feedback";
 import { openInNavigator, NAVIGATOR_URL } from "../../lib/navigator";
@@ -181,16 +183,23 @@ export function AttackPlanModal({
   const total = activeTechniques.length;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-rw-border bg-rw-elevated shadow-2xl animate-fade-in">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="attack-plan-title"
+        className="animate-scale-in relative z-10 flex max-h-[88vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-rw-border bg-rw-elevated shadow-2xl"
+      >
         {/* Header */}
         <div className="flex items-center gap-3 border-b border-rw-border px-5 py-4">
           <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-rw-accent/15">
-            <Crosshair size={18} className="text-rw-accent" />
+            <Crosshair size={18} className="text-rw-accent" aria-hidden />
           </span>
           <div className="min-w-0 flex-1">
-            <h2 className="text-base font-semibold text-rw-text">Plan hunt with ATT&CK</h2>
+            <h2 id="attack-plan-title" className="text-base font-semibold text-rw-text">
+              Plan hunt with ATT&CK
+            </h2>
             <p className="truncate text-xs text-rw-dim">
               Scope the hunt to specific MITRE ATT&CK techniques · {target || "no target"}
             </p>
@@ -201,11 +210,9 @@ export function AttackPlanModal({
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 rounded-md border border-rw-border px-2.5 py-1.5 text-xs text-rw-muted transition-colors hover:text-rw-text"
           >
-            <ExternalLink size={13} /> Open Navigator
+            <ExternalLink size={13} aria-hidden /> Open Navigator
           </a>
-          <button onClick={onClose} className="rounded-md p-1.5 text-rw-dim hover:text-rw-text">
-            <X size={18} />
-          </button>
+          <IconButton icon={<X size={16} />} label="Close attack plan" onClick={onClose} />
         </div>
 
         {/* Body */}
@@ -224,7 +231,9 @@ export function AttackPlanModal({
                       return (
                         <button
                           key={t.id}
+                          type="button"
                           onClick={() => toggle(t.id)}
+                          aria-pressed={on}
                           className={cn(
                             "flex w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left text-xs transition-colors",
                             on
@@ -252,17 +261,26 @@ export function AttackPlanModal({
 
             {/* Navigator layer paste */}
             <div className="mt-5 border-t border-rw-border-subtle pt-4">
-              <label className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-rw-dim">
-                <Upload size={12} /> Or paste an ATT&CK Navigator layer (JSON)
+              <label
+                htmlFor="attack-layer-json"
+                className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-rw-dim"
+              >
+                <Upload size={12} aria-hidden /> Or paste an ATT&CK Navigator layer (JSON)
               </label>
-              <textarea
+              <Textarea
+                id="attack-layer-json"
                 value={layerText}
                 onChange={(e) => setLayerText(e.target.value)}
                 placeholder='{ "techniques": [ { "techniqueID": "T1190", "score": 1 } ] }'
                 rows={4}
-                className="w-full rounded-lg border border-rw-border bg-rw-surface/50 px-3 py-2 font-mono text-[11px] text-rw-text placeholder:text-rw-dim focus:border-rw-accent focus:outline-none"
+                aria-invalid={layerError ? true : undefined}
+                className={cn("font-mono text-[11px]", layerError && "border-red-500/60")}
               />
-              {layerError && <p className="mt-1 text-[11px] text-rw-danger">{layerError}</p>}
+              {layerError && (
+                <p role="alert" className="mt-1 text-[11px] text-rw-danger">
+                  {layerError}
+                </p>
+              )}
               {selected.size > 0 && layerText.trim() && (
                 <p className="mt-1 text-[11px] text-rw-dim">
                   Using the {selected.size} checked technique(s); clear them to use the pasted layer.

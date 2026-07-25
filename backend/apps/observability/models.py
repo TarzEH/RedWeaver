@@ -83,6 +83,10 @@ class ToolStatus(models.TextChoices):
     ERROR = "error", "Error"
     TIMEOUT = "timeout", "Timeout"
     UNAVAILABLE = "unavailable", "Unavailable"
+    # The scope/SSRF guard refused the target before the tool ever ran. Its own
+    # outcome, not an error: it is the only durable proof the guard fired, and
+    # folding it into success or error destroys that audit signal.
+    BLOCKED = "blocked", "Blocked"
 
 
 class ToolExecution(TimeStampedUUIDModel):

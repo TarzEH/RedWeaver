@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronRight, FileText, Folder, FolderOpen } from "lucide-react";
 import { cn } from "../../lib/cn";
+import { EmptyState } from "../../components/ui/EmptyState";
 import { Spinner } from "../../components/ui/Spinner";
 import { api, type KbFile } from "../../services/api";
 import { categoryLabel } from "./kbUtils";
@@ -30,7 +31,12 @@ export function CategoryTree({ categories, loading, selectedFile, onSelectFile }
 
   if (categories.length === 0) {
     return (
-      <p className="px-3 py-6 text-center text-xs text-rw-dim">No categories indexed.</p>
+      <EmptyState
+        compact
+        icon={<Folder size={22} />}
+        title="No categories indexed"
+        description="Run a knowledge-base re-index from Settings to populate the tree."
+      />
     );
   }
 
@@ -82,6 +88,7 @@ function CategoryBranch({
       <button
         type="button"
         onClick={toggle}
+        aria-expanded={open}
         className={cn(
           "group flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm",
           "text-rw-muted transition-colors hover:bg-rw-surface hover:text-rw-text",

@@ -2,6 +2,7 @@
 import csv
 import io
 import json
+import re
 from collections import Counter
 
 from django.http import HttpResponse
@@ -29,13 +30,33 @@ def _risk_rating(sev_counts: dict) -> str:
     return "Informational"
 
 
-def _enrich_from_tools(run: Run):
+# The only ToolExecution columns the report actually reads. Loading the full
+# row would drag `raw_stdout`/`raw_stderr` along — complete nmap/nuclei/ffuf
+# output, tens of MB across a `scan_type="full"` run — into the web worker on
+# every GET of a report the frontend fetches on mount. Keep this list in sync
+# with `_enrich_from_tools` (parsed_result) and `build_report` (tool_name);
+# touching any other attribute on these instances triggers a per-row deferred
+# -field query, which is worse than the fetch this avoids.
+_TOOL_EXEC_REPORT_FIELDS = ("id", "tool_name", "parsed_result")
+
+
+def _tool_executions_for_report(run: Run) -> list:
+    """Fetch the run's tool executions once, with only the columns the report uses."""
+    return list(run.tool_executions.only(*_TOOL_EXEC_REPORT_FIELDS))
+
+
+def _enrich_from_tools(run: Run, tool_executions):
     """Derive discovered services / technologies / endpoints from the persisted
-    raw tool outputs (httpx, nmap, whatweb, crawler/fuzzer parsed_result)."""
+    raw tool outputs (httpx, nmap, whatweb, crawler/fuzzer parsed_result).
+
+    ``tool_executions`` is an already-evaluated sequence (see
+    ``_tool_executions_for_report``) so the caller can reuse it instead of
+    re-running the query; only ``parsed_result`` is read here.
+    """
     services: list[dict] = []
     techs: set[str] = set()
     endpoints = 0
-    for te in run.tool_executions.all():
+    for te in tool_executions:
         pr = te.parsed_result if isinstance(te.parsed_result, dict) else {}
         for h in pr.get("alive_hosts") or []:
             if isinstance(h, dict):
@@ -153,12 +174,14 @@ def build_report(run: Run) -> dict:
     findings = [f for f in all_findings if f.status != FindingStatus.FALSE_POSITIVE]
     false_positives = [f for f in all_findings if f.status == FindingStatus.FALSE_POSITIVE]
 
-    services, technologies, endpoints = _enrich_from_tools(run)
+    # One query, one materialised list, two consumers (enrichment + tools_used).
+    tool_executions = _tool_executions_for_report(run)
+    services, technologies, endpoints = _enrich_from_tools(run, tool_executions)
     sev_counts = Counter(f.severity for f in findings)
     agent_counts = Counter(f.agent_source for f in findings if f.agent_source)
     tools_used = sorted(
         {f.tool_used for f in findings if f.tool_used}
-        | {te.tool_name for te in run.tool_executions.all()}
+        | {te.tool_name for te in tool_executions if te.tool_name}
     )
     agents_executed = sorted({s.agent_name for s in run.agent_steps.all() if s.agent_name})
     return {
@@ -261,18 +284,44 @@ def _branding(run) -> dict:
 _SEV_HEX = {"critical": "#ef4444", "high": "#f97316", "medium": "#eab308",
             "low": "#3b82f6", "info": "#64748b"}
 
+_DEFAULT_ACCENT = "#3b82f6"
+
+# `Workspace.brand_color` is free text (CharField, no validators), so it is
+# attacker-controlled as far as the renderer is concerned. A CSS hex literal —
+# #RGB / #RGBA / #RRGGBB / #RRGGBBAA — is what the field is for; anything else
+# is rejected outright.
+_CSS_HEX_COLOR_RE = re.compile(r"\A#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\Z")
+
+
+def safe_accent_color(value, default: str = _DEFAULT_ACCENT) -> str:
+    """Return ``value`` if it is a CSS hex colour literal, else ``default``.
+
+    This guards the one interpolation in the HTML export that does *not* land in
+    text content but inside a ``<style>`` block (``:root{--accent:...}``), where
+    HTML-escaping is the wrong defence: the CSS tokenizer does not decode
+    entities, so ``&lt;/style&gt;`` would still be inert while a raw
+    ``red}</style><script>...`` payload would break out of the stylesheet and
+    run. Allow-listing the shape of a colour is the defence that works.
+
+    Deliberately pure (no Django, no DB) so it is unit-tested directly.
+    """
+    if not isinstance(value, str):
+        return default
+    candidate = value.strip()
+    return candidate if _CSS_HEX_COLOR_RE.match(candidate) else default
+
 
 def _render_html(r: dict) -> str:
     """Self-contained premium HTML report rendered from the rich build_report dict
     (the old export path ignored most of this data). Dark theme + print CSS."""
     import html as _h
-    import re
 
     def esc(s):
         return _h.escape(str(s or ""))
 
     brand = r.get("branding") or {}
-    accent = brand.get("color") or "#3b82f6"
+    # Never interpolated raw: this lands inside <style>, not in text content.
+    accent = safe_accent_color(brand.get("color"))
     sev_counts = r.get("findings_by_severity") or {}
     total = sum(sev_counts.values()) or 0
 

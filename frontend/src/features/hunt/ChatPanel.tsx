@@ -7,6 +7,7 @@ import { SeverityBadge } from "../../components/ui/SeverityBadge";
 import { Spinner } from "../../components/ui/Spinner";
 import { Button } from "../../components/ui/Button";
 import { IconButton } from "../../components/ui/IconButton";
+import { Textarea } from "../../components/ui/Input";
 import { groupMessages } from "../../utils/messageGrouping";
 import { filterDuplicateReportFromMessages } from "../../utils/filterReportChat";
 import { api } from "../../services/api";
@@ -408,7 +409,8 @@ export function ChatPanel({ selectedRunId, onSelectRun, onRunDeleted }: ChatPane
       {/* Input bar */}
       <div className="border-t border-rw-border p-3">
         <form onSubmit={sendMessage} className="flex items-end gap-2">
-          <textarea
+          <Textarea
+            aria-label="Hunt instruction"
             placeholder="Enter a target URL or describe what to scan…  (Enter to send · Shift+Enter for newline)"
             value={message}
             onChange={(e) => {
@@ -424,7 +426,7 @@ export function ChatPanel({ selectedRunId, onSelectRun, onRunDeleted }: ChatPane
             }}
             disabled={loading}
             rows={1}
-            className="max-h-32 flex-1 resize-none rounded-lg border border-rw-border bg-rw-input px-3 py-2 text-sm text-rw-text outline-none placeholder:text-rw-dim focus:border-rw-accent"
+            className="max-h-32 flex-1"
           />
           <Button type="submit" disabled={loading || !message.trim()} icon={<Send size={14} />}>
             {selectedRun ? "Send" : "Hunt"}

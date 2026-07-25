@@ -2,9 +2,14 @@
 
 Engine imports are lazy so the project boots/checks without crewai installed.
 """
+import uuid
+
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+
+from apps.common.redaction import scrub_secrets
 
 
 @api_view(["GET"])
@@ -15,8 +20,10 @@ def tools_list(request):
 
         report = ToolRegistry().get_availability_report()
     except Exception as exc:  # engine deps unavailable
+        # Tool init reads provider credentials, so the failure text can carry them.
         return Response(
-            {"categories": {}, "total_count": 0, "available_count": 0, "error": str(exc)}
+            {"categories": {}, "total_count": 0, "available_count": 0,
+             "error": scrub_secrets(str(exc))}
         )
     total = sum(len(v) for v in report.values())
     available = sum(1 for v in report.values() for t in v if t.get("available"))
@@ -31,11 +38,18 @@ def graph_topology(request):
     target, objective, ssh = None, "comprehensive", None
     run_id = request.query_params.get("run_id")
     if run_id:
+        from apps.common.access import run_scope_q, scoped_get_or_404
         from apps.hunts.models import Run
 
-        run = Run.objects.filter(id=run_id).first()
-        if run:
-            target, objective, ssh = run.target, run.objective, run.ssh_config
+        # The topology is derived from the run's target and ssh_config, so an
+        # unscoped lookup let any user probe an arbitrary run id and learn a
+        # stranger's target type and whether SSH credentials were configured.
+        try:
+            run_pk = uuid.UUID(str(run_id))
+        except (TypeError, ValueError):
+            raise NotFound("run not found") from None
+        run = scoped_get_or_404(Run, request.user, run_scope_q, id=run_pk)
+        target, objective, ssh = run.target, run.objective, run.ssh_config
 
     nodes, edges = [], []
     try:

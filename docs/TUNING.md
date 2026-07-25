@@ -174,10 +174,32 @@ Two rules it will not break:
   at most.
 
 Verdicts land on `Finding.status`, `Finding.confidence` and
-`Finding.verified_by_agent`. The findings API and the generated HTML/JSON report
-read live from the database, so they reflect the verdicts. `run.report_markdown`
-— the narrative the report_writer produced during the hunt — is frozen before
-verification runs and does **not**.
+`Finding.verified_by_agent`, and surface in three places:
+
+- **Findings triage** — a refuted finding is struck through, desaturated and
+  dashed, not just another coloured chip. "Hide ruled out" is on by default with
+  the count always visible, and every facet count states which population it
+  describes. Hover the badge to see which agent adjudicated it.
+- **The report** — refuted findings no longer feed the severity counts, the risk
+  rating or the remediation plan. They stay listed with their status, and
+  `false_positive_count` / `false_positive_titles` say what was excluded.
+- **`eval_hunt`** — the `--raw` vs default gap, which is the measurement.
+
+`run.report_markdown` — the narrative the report_writer produced *during* the
+hunt — is frozen before verification runs and does **not** reflect the verdicts.
+The HTML/JSON report is generated on request from the database, so it does.
+
+### What this looked like in practice
+
+A hunt against a Cloudflare-fronted host reported five findings the evidence did
+not support — a 2025 Cloudflare CVE at **critical**, and four 2009-era nginx CVEs
+at high/medium — all matched against a banner with nothing tying those versions
+to the host. The verifier refuted all five:
+
+```
+before   Overall Risk: Critical   1 critical · 1 high · 3 medium
+after    Overall Risk: Low        0 critical · 0 high · 0 medium
+```
 
 ---
 

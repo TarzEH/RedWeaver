@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Database, RefreshCw, CheckCircle, XCircle, Loader2 } from "lucide-react";
 import { Card, CardHeader } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
+import { Input, Select } from "../../components/ui/Input";
+import { useToast } from "../../components/ui/feedback";
 import { api } from "../../services/api";
 import type { EmbeddingConfig } from "../../types/api";
 
-const inputCls =
-  "w-full bg-white/[0.05] border border-white/[0.08] rounded-lg px-3 py-2 text-[13px] " +
-  "text-rw-text transition-colors duration-150 hover:border-white/[0.15] " +
-  "focus:border-rw-accent/50 focus:outline-none disabled:opacity-40";
+/** Field labels here match the rest of Settings. */
+const labelCls = "mb-1.5 block text-xs text-rw-muted";
 
 export function EmbeddingSettingsCard() {
   const [cfg, setCfg] = useState<EmbeddingConfig | null>(null);
@@ -16,7 +16,7 @@ export function EmbeddingSettingsCard() {
   const [model, setModel] = useState("");
   const [device, setDevice] = useState("cpu");
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const toast = useToast();
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const apply = useCallback((data: EmbeddingConfig) => {
@@ -55,26 +55,26 @@ export function EmbeddingSettingsCard() {
   const needsKey = providerOpt?.needs_key && !cfg?.openai_key_configured;
 
   const handleSave = async () => {
-    setBusy(true); setMessage(null);
+    setBusy(true);
     try {
       const data = await api.knowledge.saveEmbeddingConfig({ provider, model, device });
       apply(data);
-      setMessage({ text: "Embedding settings saved. Re-index to apply.", type: "success" });
+      toast.success("Embedding settings saved. Re-index to apply.");
     } catch (err) {
-      setMessage({ text: `Error: ${err instanceof Error ? err.message : "Unknown"}`, type: "error" });
+      toast.error(`Could not save embedding settings: ${err instanceof Error ? err.message : "Unknown"}`);
     } finally { setBusy(false); }
   };
 
   const handleReindex = async () => {
-    setBusy(true); setMessage(null);
+    setBusy(true);
     try {
       // Persist the current selection first, then kick off the rebuild.
       await api.knowledge.saveEmbeddingConfig({ provider, model, device });
       const data = await api.knowledge.reindex();
       setCfg(data);
-      setMessage({ text: "Re-index started — embedding the knowledge base…", type: "success" });
+      toast.info("Re-index started — embedding the knowledge base…");
     } catch (err) {
-      setMessage({ text: `Error: ${err instanceof Error ? err.message : "Unknown"}`, type: "error" });
+      toast.error(`Could not start the re-index: ${err instanceof Error ? err.message : "Unknown"}`);
     } finally { setBusy(false); }
   };
 
@@ -88,9 +88,9 @@ export function EmbeddingSettingsCard() {
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <label className="block text-xs text-rw-muted mb-1.5">Provider</label>
-          <select
-            className={inputCls + " appearance-none cursor-pointer"}
+          <label htmlFor="embed-provider" className={labelCls}>Provider</label>
+          <Select
+            id="embed-provider"
             value={provider}
             onChange={(e) => {
               const p = e.target.value;
@@ -99,19 +99,16 @@ export function EmbeddingSettingsCard() {
               setModel(opt?.models[0]?.id ?? "");
             }}
             disabled={running || busy}
-          >
-            {cfg?.providers.map((p) => (
-              <option key={p.id} value={p.id} className="bg-[#0d1117]">{p.label}</option>
-            ))}
-          </select>
+            options={(cfg?.providers ?? []).map((p) => ({ value: p.id, label: p.label }))}
+          />
         </div>
 
         <div>
-          <label className="block text-xs text-rw-muted mb-1.5">
+          <label htmlFor="embed-model" className={labelCls}>
             Model <span className="text-rw-dim">(dimension auto-detected on re-index)</span>
           </label>
-          <input
-            className={inputCls}
+          <Input
+            id="embed-model"
             list="embed-model-options"
             value={model}
             placeholder={provider === "huggingface" ? "sentence-transformers/all-MiniLM-L6-v2" : "text-embedding-3-small"}
@@ -127,16 +124,17 @@ export function EmbeddingSettingsCard() {
 
         {provider === "huggingface" && (
           <div>
-            <label className="block text-xs text-rw-muted mb-1.5">Device</label>
-            <select
-              className={inputCls + " appearance-none cursor-pointer"}
+            <label htmlFor="embed-device" className={labelCls}>Device</label>
+            <Select
+              id="embed-device"
               value={device}
               onChange={(e) => setDevice(e.target.value)}
               disabled={running || busy}
-            >
-              <option value="cpu" className="bg-[#0d1117]">CPU</option>
-              <option value="cuda" className="bg-[#0d1117]">CUDA (GPU)</option>
-            </select>
+              options={[
+                { value: "cpu", label: "CPU" },
+                { value: "cuda", label: "CUDA (GPU)" },
+              ]}
+            />
           </div>
         )}
       </div>
@@ -186,11 +184,8 @@ export function EmbeddingSettingsCard() {
       )}
 
       {cfg?.status === "error" && cfg.last_error && (
-        <p className="text-xs text-red-400 mt-2 font-mono break-all">{cfg.last_error}</p>
-      )}
-      {message && (
-        <p className={`text-sm mt-3 ${message.type === "error" ? "text-red-400" : "text-emerald-400"}`}>
-          {message.text}
+        <p role="alert" className="mt-2 break-all font-mono text-xs text-red-400">
+          {cfg.last_error}
         </p>
       )}
     </Card>

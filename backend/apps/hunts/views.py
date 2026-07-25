@@ -5,10 +5,12 @@ Execution (start/stop/chat -> Celery) is wired in Phase F; the start/stop
 actions here update status and enqueue when the task is available.
 """
 import json
+import uuid
 
 from django.utils import timezone
-from rest_framework import mixins, status, viewsets
+from rest_framework import mixins, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -20,6 +22,7 @@ from apps.common.access import (
     target_scope_q,
 )
 from apps.common.permissions import RoleWritePermission
+from apps.common.redaction import scrub_secrets
 
 from .models import NotificationChannel, Run, Schedule, Session, Target
 from .serializers import (
@@ -35,6 +38,18 @@ from .serializers import (
     TargetSerializer,
     TargetWriteSerializer,
 )
+
+
+def _as_uuid(value, what: str) -> uuid.UUID:
+    """Coerce a router-captured id to a UUID, 404-ing on garbage.
+
+    The @action url_path regex matches any non-slash text, so an unparseable id
+    would reach the UUID column and raise — a 500 where a 404 belongs.
+    """
+    try:
+        return uuid.UUID(str(value))
+    except (TypeError, ValueError):
+        raise NotFound(f"{what} not found") from None
 
 
 class RunViewSet(
@@ -134,9 +149,16 @@ class SessionViewSet(ScopedQuerysetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path=r"targets/(?P<target_id>[^/.]+)")
     def link_target(self, request, pk=None, target_id=None):
         session = self.get_object()
-        updated = Target.objects.filter(id=target_id).update(session=session)
-        if not updated:
-            return Response({"detail": "target not found"}, status=status.HTTP_404_NOT_FOUND)
+        # Reparenting is a two-sided operation: owning the destination session is
+        # not enough, the caller must also be able to see the target. Updating by
+        # raw id let anyone move a stranger's target into their own session —
+        # which both granted them read access (target_scope_q follows
+        # session__created_by) and silently removed it from the owner's session.
+        target = scoped_get_or_404(
+            Target, request.user, target_scope_q, id=_as_uuid(target_id, "target")
+        )
+        target.session = session
+        target.save(update_fields=["session", "updated_at"])
         return Response({"status": "linked"})
 
 
@@ -264,7 +286,10 @@ def session_posture(request, session_id):
     from apps.common.access import scoped_get_or_404, session_scope_q
     sess = scoped_get_or_404(Session, request.user, session_scope_q, id=session_id)
     points = []
-    for run in sess.runs.filter(status="completed").order_by("created_at"):
+    # Every point needs the run's findings; without the prefetch a session on a
+    # daily schedule costs one query per run (365 runs -> 366 queries per load).
+    runs = sess.runs.filter(status="completed").order_by("created_at").prefetch_related("findings")
+    for run in runs:
         fs = list(run.findings.all())
         points.append({
             "run_id": str(run.id),
@@ -356,7 +381,9 @@ def run_ask(request, run_id):
         llm = _build_crewai_llm(lf, kp.get_all())
         answer = llm.call([{"role": "user", "content": prompt}])
     except Exception as exc:  # noqa: BLE001
-        return Response({"error": str(exc)}, status=500)
+        # Provider error bodies echo back credential fragments — an OpenAI 401
+        # carries a partially-revealing key. Never hand that to the browser.
+        return Response({"error": scrub_secrets(str(exc))}, status=500)
     return Response({"answer": str(answer), "question": question})
 
 

@@ -4,9 +4,13 @@ import { Server, Network, Cpu, ArrowUpDown, ShieldOff, Zap } from "lucide-react"
 import { api } from "../../services/api";
 import type { AssetInventory, AssetHost } from "../../services/api";
 import type { Finding, Severity } from "../../types/api";
-import { SEVERITY_ORDER, severityHex, severityStyle } from "../../config/theme";
+import { SEVERITY_ORDER, severityHex } from "../../config/theme";
+import { Card } from "../../components/ui/Card";
 import { EmptyState } from "../../components/ui/EmptyState";
+import { SeverityBadge } from "../../components/ui/SeverityBadge";
 import { Skeleton } from "../../components/ui/Skeleton";
+import { Table, THead, TBody, TH, TR, TD } from "../../components/ui/Table";
+import { PageHeader } from "../../components/layout/PageHeader";
 import { cn } from "../../lib/cn";
 import { ExposureCard } from "./ExposureCard";
 import { PostureTrend } from "../../components/domain/PostureTrend";
@@ -52,25 +56,21 @@ function syntheticFindings(assets: AssetHost[]): Finding[] {
   return out;
 }
 
-function MaxSeverityBadge({ severity }: { severity: string }) {
-  const sev = normSeverity(severity);
-  const s = severityStyle(sev);
+/**
+ * Per-severity count chip, shared by this page's header summary and the
+ * ExposureCard breakdown. Label + count are always written out.
+ */
+function SeverityCountChip({ severity, count }: { severity: Severity; count: number }) {
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
-        s.bg,
-        s.color,
-        s.border,
-      )}
-    >
+    <div className="flex items-center gap-1.5 rounded-md border border-rw-border bg-rw-surface px-2 py-1">
       <span
-        className="h-1.5 w-1.5 rounded-full"
-        style={{ backgroundColor: severityHex(sev) }}
         aria-hidden
+        className="h-2 w-2 rounded-full"
+        style={{ backgroundColor: severityHex(severity) }}
       />
-      {s.label}
-    </span>
+      <span className="text-[10px] font-medium capitalize text-rw-muted">{severity}</span>
+      <span className="font-mono text-[11px] font-semibold tabular-nums text-rw-text">{count}</span>
+    </div>
   );
 }
 
@@ -117,18 +117,20 @@ function SortHeader({
   className?: string;
 }) {
   return (
-    <th className={cn("px-4 py-2.5", className)}>
+    <TH className={className} aria-sort={active ? "descending" : "none"}>
       <button
+        type="button"
         onClick={onClick}
+        aria-label={`Sort by ${label}`}
         className={cn(
-          "inline-flex items-center gap-1 transition-colors hover:text-rw-text",
+          "inline-flex items-center gap-1 rounded transition-colors hover:text-rw-text",
           active ? "text-rw-text" : "text-rw-dim",
         )}
       >
         {label}
-        <ArrowUpDown size={11} className={active ? "text-rw-accent" : "text-rw-dim"} />
+        <ArrowUpDown size={11} aria-hidden className={active ? "text-rw-accent" : "text-rw-dim"} />
       </button>
-    </th>
+    </TH>
   );
 }
 
@@ -189,87 +191,66 @@ export function AssetInventoryPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-6xl p-6">
-        <div className="mb-5 flex items-end justify-between gap-4">
-          <div className="space-y-2">
-            <Skeleton className="h-7 w-56" />
-            <Skeleton className="h-4 w-40" />
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-6xl p-6">
+          <div className="mb-6 flex items-center justify-between gap-4">
+            <div className="space-y-2">
+              <Skeleton className="h-6 w-56" />
+              <Skeleton className="h-4 w-40" />
+            </div>
+            <div className="flex gap-1.5">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <Skeleton key={i} className="h-7 w-16 rounded-md" />
+              ))}
+            </div>
           </div>
-          <div className="flex gap-1.5">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-7 w-16 rounded-md" />
+          <Skeleton className="mb-5 h-28 w-full rounded-xl" />
+          <Card padding="sm" className="space-y-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-12 w-full" />
             ))}
-          </div>
-        </div>
-        <Skeleton className="mb-5 h-28 w-full rounded-xl" />
-        <div className="space-y-2 rounded-xl border border-rw-border bg-rw-elevated p-4">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-12 w-full" />
-          ))}
+          </Card>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="mx-auto max-w-6xl p-6">
-      {/* Header */}
-      <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold text-rw-text">
-            <Server size={22} className="text-rw-accent" />
-            Asset Inventory
-          </h1>
-          <p className="mt-1 text-sm text-rw-dim">
-            <span className="font-mono font-semibold text-rw-muted">
-              {data?.asset_count ?? assets.length}
-            </span>{" "}
-            host{(data?.asset_count ?? assets.length) === 1 ? "" : "s"} discovered
-            {sessionId && (
-              <>
-                {" "}
-                · session{" "}
-                <span className="font-mono text-rw-dim">{sessionId}</span>
-              </>
-            )}
-          </p>
-        </div>
+  const hostCount = data?.asset_count ?? assets.length;
 
-        {/* Compact per-host max-severity summary */}
-        <div className="flex flex-wrap gap-1.5">
-          {SEVERITY_ORDER.map((sev) => (
-            <div
-              key={sev}
-              className="flex items-center gap-1.5 rounded-md border border-rw-border bg-rw-surface px-2 py-1"
-            >
-              <span
-                className="h-2 w-2 rounded-full"
-                style={{ backgroundColor: severityHex(sev) }}
-                aria-hidden
-              />
-              <span className="text-[10px] font-medium capitalize text-rw-muted">
-                {sev}
-              </span>
-              <span className="font-mono text-[11px] font-semibold text-rw-text">
-                {sevSummary[sev]}
-              </span>
+  return (
+    <div className="flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-6xl p-6">
+        <PageHeader
+          title="Asset Inventory"
+          subtitle={`${hostCount} host${hostCount === 1 ? "" : "s"} discovered${
+            sessionId ? ` · session ${sessionId}` : ""
+          }`}
+          actions={
+            /* Compact per-host max-severity summary */
+            <div className="flex flex-wrap gap-1.5">
+              {SEVERITY_ORDER.map((sev) => (
+                <SeverityCountChip key={sev} severity={sev} count={sevSummary[sev]} />
+              ))}
             </div>
-          ))}
-        </div>
-      </div>
+          }
+        />
 
       {error ? (
-        <EmptyState
-          icon={<ShieldOff size={32} />}
-          title="Could not load assets"
-          description="The asset inventory for this session is unavailable. Try again shortly."
-        />
+        <Card>
+          <EmptyState
+            icon={<ShieldOff size={32} />}
+            title="Could not load assets"
+            description="The asset inventory for this session is unavailable. Try again shortly."
+          />
+        </Card>
       ) : assets.length === 0 ? (
-        <EmptyState
-          icon={<Server size={32} />}
-          title="No assets discovered"
-          description="Once recon and scanning agents have mapped hosts for this session, they will appear here."
-        />
+        <Card>
+          <EmptyState
+            icon={<Server size={32} />}
+            title="No assets discovered"
+            description="Once recon and scanning agents have mapped hosts for this session, they will appear here."
+          />
+        </Card>
       ) : (
         <>
           {/* Exposure header */}
@@ -283,31 +264,31 @@ export function AssetInventoryPage() {
           {sessionId && <div className="mb-5"><PostureTrend sessionId={sessionId} /></div>}
 
           {/* Host table */}
-          <div className="overflow-hidden rounded-xl border border-rw-border bg-rw-elevated">
-            <table className="w-full text-sm">
-              <thead className="bg-rw-surface/50 text-left text-[11px] uppercase tracking-wide">
+          <Card padding="none" className="overflow-hidden">
+            <Table>
+              <THead>
                 <tr>
-                  <th className="px-4 py-2.5 text-rw-dim">Host</th>
+                  <TH>Host</TH>
                   <SortHeader
                     label="Max severity"
                     active={sortKey === "severity"}
                     onClick={() => setSortKey("severity")}
                   />
-                  <th className="px-4 py-2.5 text-rw-dim">
+                  <TH>
                     <span className="inline-flex items-center gap-1">
-                      <Network size={11} /> Open ports
+                      <Network size={11} aria-hidden /> Open ports
                     </span>
-                  </th>
-                  <th className="px-4 py-2.5 text-rw-dim">
+                  </TH>
+                  <TH>
                     <span className="inline-flex items-center gap-1">
-                      <Cpu size={11} /> Technologies
+                      <Cpu size={11} aria-hidden /> Technologies
                     </span>
-                  </th>
-                  <th className="px-4 py-2.5 text-rw-dim">
+                  </TH>
+                  <TH>
                     <span className="inline-flex items-center gap-1">
-                      <ShieldOff size={11} /> CVEs
+                      <ShieldOff size={11} aria-hidden /> CVEs
                     </span>
-                  </th>
+                  </TH>
                   <SortHeader
                     label="Findings"
                     active={sortKey === "findings"}
@@ -315,14 +296,11 @@ export function AssetInventoryPage() {
                     className="text-right"
                   />
                 </tr>
-              </thead>
-              <tbody>
+              </THead>
+              <TBody>
                 {sorted.map((host) => (
-                  <tr
-                    key={host.host}
-                    className="border-t border-rw-border/60 transition-colors hover:bg-rw-surface/40"
-                  >
-                    <td className="px-4 py-3">
+                  <TR key={host.host} className="hover:bg-rw-surface/40">
+                    <TD className="py-3">
                       <div className="flex items-center gap-3">
                         {host.screenshot && (
                           <img
@@ -339,36 +317,37 @@ export function AssetInventoryPage() {
                           <span className="truncate font-mono text-rw-text">{host.host}</span>
                           {host.exploit_available && (
                             <span className="inline-flex w-fit items-center gap-1 rounded border border-red-500/40 bg-red-500/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-red-400">
-                              <Zap size={9} /> Exploit
+                              <Zap size={9} aria-hidden /> Exploit
                             </span>
                           )}
                         </div>
                       </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <MaxSeverityBadge severity={host.max_severity} />
-                    </td>
-                    <td className="max-w-xs px-4 py-3">
+                    </TD>
+                    <TD className="py-3">
+                      <SeverityBadge severity={normSeverity(host.max_severity)} dot />
+                    </TD>
+                    <TD className="max-w-xs py-3">
                       <Chips items={host.ports} tone="accent" empty="—" />
-                    </td>
-                    <td className="max-w-sm px-4 py-3">
+                    </TD>
+                    <TD className="max-w-sm py-3">
                       <Chips items={host.technologies} tone="muted" empty="—" />
-                    </td>
-                    <td className="max-w-xs px-4 py-3">
+                    </TD>
+                    <TD className="max-w-xs py-3">
                       <Chips items={host.cves} tone="muted" empty="—" />
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <span className="font-mono font-semibold text-rw-text">
+                    </TD>
+                    <TD className="py-3 text-right">
+                      <span className="font-mono font-semibold tabular-nums text-rw-text">
                         {host.findings}
                       </span>
-                    </td>
-                  </tr>
+                    </TD>
+                  </TR>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TBody>
+            </Table>
+          </Card>
         </>
       )}
+      </div>
     </div>
   );
 }

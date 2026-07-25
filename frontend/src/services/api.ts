@@ -13,6 +13,26 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return apiFetch<T>(path, options);
 }
 
+/** Build a query string from the params that are actually set (`""` when none). */
+function qs(params: Record<string, string | number | undefined | null>): string {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== null && v !== "") sp.set(k, String(v));
+  }
+  const s = sp.toString();
+  return s ? `?${s}` : "";
+}
+
+/** Absolute URL → same-origin path + query (DRF pagination links are absolute). */
+function toPath(url: string): string {
+  try {
+    const u = new URL(url, window.location.origin);
+    return `${u.pathname}${u.search}`;
+  } catch {
+    return url;
+  }
+}
+
 /* ── v0.6 insight + KB types ── */
 
 export interface RunCompare {
@@ -414,15 +434,26 @@ export const api = {
 
   /* Behind-the-scenes observability (the debug surface) */
   debug: {
-    toolExecutions: (runId: string) =>
-      request<Paginated<ToolExecutionRow>>(`/api/runs/${runId}/tool-executions`),
-    agentSteps: (runId: string) =>
-      request<Paginated<AgentStepRow>>(`/api/runs/${runId}/agent-steps`),
-    events: (runId: string, after?: number) =>
-      request<Paginated<EventLogRow>>(
-        `/api/runs/${runId}/events${after ? `?after=${after}` : ""}`,
+    toolExecutions: (runId: string, pageSize?: number) =>
+      request<Paginated<ToolExecutionRow>>(
+        `/api/runs/${runId}/tool-executions${qs({ page_size: pageSize })}`,
       ),
-    screenshots: (runId: string) =>
-      request<Paginated<ScreenshotRow>>(`/api/runs/${runId}/screenshots`),
+    agentSteps: (runId: string, pageSize?: number) =>
+      request<Paginated<AgentStepRow>>(
+        `/api/runs/${runId}/agent-steps${qs({ page_size: pageSize })}`,
+      ),
+    events: (runId: string, after?: number, pageSize?: number) =>
+      request<Paginated<EventLogRow>>(
+        `/api/runs/${runId}/events${qs({ after, page_size: pageSize })}`,
+      ),
+    screenshots: (runId: string, pageSize?: number) =>
+      request<Paginated<ScreenshotRow>>(
+        `/api/runs/${runId}/screenshots${qs({ page_size: pageSize })}`,
+      ),
+    /**
+     * Follow a DRF `next` link. The server hands back an absolute URL; the
+     * request helper wants a same-origin path, so keep only path + query.
+     */
+    page: <T>(nextUrl: string) => request<Paginated<T>>(toPath(nextUrl)),
   },
 };

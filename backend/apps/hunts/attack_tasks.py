@@ -7,6 +7,7 @@ from celery import shared_task
 from django.utils import timezone
 
 from apps.accounts.keys import keys_provider_for_user
+from apps.common.redaction import scrub_secrets
 from apps.observability.publisher import publish
 
 from .crew_factory import llm_for_role
@@ -69,9 +70,14 @@ def generate_attack_playbook(self, run_id: str) -> None:
             publish(str(run.id), "attack_complete", {"agent": "attack", "length": len(md)})
         except Exception as exc:  # noqa: BLE001
             logger.exception("attack playbook failed for %s", run_id)
+            # Provider errors echo back credential fragments (an OpenAI 401
+            # includes a partial key). This payload is persisted verbatim in
+            # EventLog and broadcast to every WebSocket subscriber of the run,
+            # so it has to be scrubbed before it is published.
+            safe_error = scrub_secrets(str(exc))
             run.attack_status = "failed"
             run.save(update_fields=["attack_status", "updated_at"])
-            publish(str(run.id), "attack_error", {"error": str(exc)})
+            publish(str(run.id), "attack_error", {"error": safe_error})
 
 
 import os as _os
