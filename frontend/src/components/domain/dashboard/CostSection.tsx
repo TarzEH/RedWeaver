@@ -11,6 +11,7 @@ import {
 import { DollarSign } from "lucide-react";
 import { Card } from "../../ui/Card";
 import { EmptyState } from "../../ui/EmptyState";
+import { StatGrid } from "../../ui/StatGrid";
 import { FreshnessLabel } from "./FreshnessLabel";
 import { DeltaIndicator } from "./DeltaIndicator";
 import { percentile, type TrendMetric } from "../../../features/dashboard/metrics";
@@ -117,7 +118,11 @@ export function CostSection({ runs, spendTrend, updatedAt, paused, onOpenRun }: 
       {header}
 
       {/* Headline totals + the two order statistics that survive a long tail. */}
-      <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {/* StatGrid keys off this row's own width rather than the viewport, so
+          the tiles stay readable if the section is ever rendered narrow. The
+          Spend Over Time chart deliberately stays outside it: container-type
+          containment resolves a percentage height against zero. */}
+      <StatGrid className="mb-4">
         <Card className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-rw-muted">Total spend</span>
           <span className="text-2xl font-bold tabular-nums leading-none text-rw-text">
@@ -166,7 +171,7 @@ export function CostSection({ runs, spendTrend, updatedAt, paused, onOpenRun }: 
             <span className="text-rw-muted">p95</span>, and names the outliers on the right.
           </p>
         </Card>
-      </div>
+      </StatGrid>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
         {/* Spend over time — same treatment as Findings Over Time. */}

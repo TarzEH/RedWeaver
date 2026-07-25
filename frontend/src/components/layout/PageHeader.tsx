@@ -5,8 +5,10 @@ interface PageHeaderProps {
 }
 
 export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
+  // flex-wrap so a title plus several action controls drop to a second line on
+  // a phone instead of pushing the last button off the right edge.
   return (
-    <div className="flex items-center justify-between mb-6">
+    <div className="mb-6 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
       <div>
         {/*
           tabIndex={-1} makes the heading programmatically focusable without
@@ -22,7 +24,7 @@ export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
         </h1>
         {subtitle && <p className="text-xs text-rw-dim mt-1">{subtitle}</p>}
       </div>
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   );
 }

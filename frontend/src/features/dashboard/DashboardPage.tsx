@@ -22,7 +22,8 @@ import { SeverityBadge } from "../../components/ui/SeverityBadge";
 import { isRuledOut } from "../../components/ui/FindingStatusBadge";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Skeleton } from "../../components/ui/Skeleton";
-import { Table, THead, TBody, TH, TR, TD } from "../../components/ui/Table";
+import { Table, TableScroll, THead, TBody, TH, TR, TD } from "../../components/ui/Table";
+import { StatGrid } from "../../components/ui/StatGrid";
 import { PageHeader } from "../../components/layout/PageHeader";
 import { KpiCard } from "../../components/domain/dashboard/KpiCard";
 import { CostSection } from "../../components/domain/dashboard/CostSection";
@@ -273,8 +274,12 @@ export function DashboardPage() {
         }
       />
 
-      {/* KPIs — label, value, delta against a named baseline, sparkline. */}
-      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {/* KPIs — label, value, delta against a named baseline, sparkline.
+          StatGrid steps off the row's own width, not the viewport, so the same
+          tiles behave correctly if this block is ever rendered in a side panel.
+          Safe for the sparklines: they are hand-rolled SVG at a fixed h-8, not
+          Recharts with a percentage height. */}
+      <StatGrid className="mb-8">
         {runsLoading ? (
           Array.from({ length: 4 }).map((_, i) => (
             <Card key={i} className="space-y-2">
@@ -340,7 +345,7 @@ export function DashboardPage() {
             />
           </>
         )}
-      </div>
+      </StatGrid>
 
       {/* Cost — total, trend, percentiles and the runs that dominate the bill. */}
       {!runsLoading && (
@@ -525,7 +530,10 @@ export function DashboardPage() {
         </Card>
       ) : (
         <Card padding="none" className="overflow-hidden">
-          <Table>
+          {/* Scroll region, not a card reflow: the row is wider than a phone
+              viewport and without this the whole page scrolls sideways. */}
+          <TableScroll label="Recent hunts">
+          <Table stickyFirstCol>
             <THead>
               <tr>
                 <TH>Status</TH>
@@ -572,6 +580,7 @@ export function DashboardPage() {
               ))}
             </TBody>
           </Table>
+          </TableScroll>
         </Card>
       )}
     </div>
