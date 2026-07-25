@@ -6,7 +6,7 @@ import type { AttackChain } from "../../services/api";
 import { ApiError } from "../../services/http";
 import { useToast } from "../../components/ui/feedback";
 import { openInNavigator } from "../../lib/navigator";
-import type { Finding, VulnerabilityReport } from "../../types/api";
+import type { Finding, ReportCost, VulnerabilityReport } from "../../types/api";
 import { severityHex, SEVERITY_ORDER } from "../../config/theme";
 import { Spinner } from "../../components/ui/Spinner";
 import { SeverityBadge } from "../../components/ui/SeverityBadge";
@@ -56,6 +56,57 @@ function ContextRow({ label, value }: { label: string; value: string }) {
       <div className="text-[11px] font-semibold uppercase tracking-wider text-rw-dim">{label}</div>
       <div className="mt-0.5 break-words text-sm text-rw-text">{value}</div>
     </div>
+  );
+}
+
+/** Spend for the run: actual cost, the model it was priced against, and — when
+ * a ceiling was set — how much of it the hunt consumed. */
+function CostBadge({ cost }: { cost: ReportCost }) {
+  const spent = cost.total_usd ?? 0;
+  const budget = cost.budget_usd ?? null;
+  const used = cost.budget_used_fraction ?? null;
+  // Over budget is worth flagging: the run was cut short, so the report is partial.
+  const overBudget = used != null && used >= 1;
+
+  return (
+    <span className="ml-auto flex flex-col items-end gap-1">
+      <span className="inline-flex items-center gap-1.5 rounded-md border border-rw-border bg-rw-surface/50 px-2.5 py-1 text-xs text-rw-muted">
+        <DollarSign size={13} className="text-rw-dim" />
+        <span className="tabular-nums">${spent.toFixed(4)}</span>
+        {budget != null && (
+          <span className={overBudget ? "tabular-nums text-rw-danger" : "tabular-nums text-rw-dim"}>
+            / ${budget.toFixed(2)}
+          </span>
+        )}
+        {cost.model && <span className="text-rw-dim">· {cost.model}</span>}
+        {cost.is_estimate && (
+          <span
+            className="text-rw-dim"
+            title="This model has no price entry, so the figure is a rough estimate"
+          >
+            · approx
+          </span>
+        )}
+      </span>
+
+      {used != null && (
+        <span className="flex items-center gap-1.5">
+          <span
+            className="h-1 w-24 overflow-hidden rounded-full bg-rw-surface"
+            role="img"
+            aria-label={`${Math.round(used * 100)}% of budget used`}
+          >
+            <span
+              className={`block h-full rounded-full ${overBudget ? "bg-rw-danger" : "bg-rw-accent"}`}
+              style={{ width: `${Math.min(100, used * 100)}%` }}
+            />
+          </span>
+          <span className="text-[11px] tabular-nums text-rw-dim">
+            {Math.round(used * 100)}% of budget
+          </span>
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -176,13 +227,7 @@ export function ReportView({ runId: runIdProp }: ReportViewProps) {
               {report.target} · {new Date(report.generated_at).toLocaleString()}
             </p>
           </div>
-          {cost?.total_usd != null && (
-            <span className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-rw-border bg-rw-surface/50 px-2.5 py-1 text-xs text-rw-muted">
-              <DollarSign size={13} className="text-rw-dim" />
-              <span className="tabular-nums">${cost.total_usd.toFixed(2)}</span>
-              {cost.model && <span className="text-rw-dim">· {cost.model}</span>}
-            </span>
-          )}
+          {cost?.total_usd != null && <CostBadge cost={cost} />}
         </header>
 
         {/* Verdict hero */}

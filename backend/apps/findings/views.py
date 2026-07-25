@@ -107,7 +107,10 @@ def run_findings(request, run_id):
     """GET /api/runs/{run_id}/findings -> {findings: [...]} (scoped to the user)."""
     qs = Finding.objects.filter(run_id=run_id).order_by("-created_at")
     if not getattr(request.user, "is_superuser", False):
-        qs = qs.filter(finding_scope_q(request.user))
+        # .distinct() is required: finding_scope_q ORs in a join across the
+        # Workspace.members M2M, which fans out one row per member — a run with
+        # 10 findings in a 3-member workspace returned 30.
+        qs = qs.filter(finding_scope_q(request.user)).distinct()
     return Response({"findings": FindingSerializer(qs, many=True).data})
 
 

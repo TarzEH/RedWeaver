@@ -2,6 +2,7 @@
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .budget import parse_budget_usd
 from .models import Run, Session
 from .scan_intent import ScanIntentParser
 
@@ -43,6 +44,7 @@ class ChatView(APIView):
             target=target,
             scope=body.get("scope") or "",
             objective=objective,
+            budget_usd=parse_budget_usd(body.get("budget_usd")),
             ssh_config=body.get("ssh_config"),
         )
 

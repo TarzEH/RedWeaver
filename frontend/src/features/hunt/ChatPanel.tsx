@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Send, ChevronDown, ChevronRight, Trash2, Crosshair, Lock, FolderOpen } from "lucide-react";
+import { Send, ChevronDown, ChevronRight, Trash2, Crosshair, Lock, FolderOpen, DollarSign } from "lucide-react";
 import { useHuntContext } from "../../contexts/HuntContext";
 import { ThinkingStream } from "../../components/domain/ThinkingStream";
 import { StatusBadge } from "../../components/ui/StatusBadge";
@@ -31,6 +31,9 @@ export function ChatPanel({ selectedRunId, onSelectRun, onRunDeleted }: ChatPane
   const [showReasoning, setShowReasoning] = useState(true);
   const [showSSH, setShowSSH] = useState(false);
   const [sshConfig, setSSHConfig] = useState<SSHConfig>({ host: "", username: "root", port: 22 });
+  const [showBudget, setShowBudget] = useState(false);
+  // Kept as a string so the field can be cleared; parsed only on send.
+  const [budgetUsd, setBudgetUsd] = useState("");
   const threadEndRef = useRef<HTMLDivElement>(null);
 
   const isRunning = selectedRun?.status === "running" || selectedRun?.status === "queued";
@@ -104,6 +107,11 @@ export function ChatPanel({ selectedRunId, onSelectRun, onRunDeleted }: ChatPane
 
     const chatBody: Record<string, unknown> = { message: text, run_id: selectedRun?.run_id };
     if (showSSH && sshConfig.host && sshConfig.username) chatBody.ssh_config = sshConfig;
+    // Only send a usable ceiling; the backend treats anything else as "no limit".
+    const budget = Number(budgetUsd);
+    if (showBudget && budgetUsd.trim() && Number.isFinite(budget) && budget > 0) {
+      chatBody.budget_usd = budget;
+    }
 
     api.chat
       .send(chatBody)
@@ -262,6 +270,45 @@ export function ChatPanel({ selectedRunId, onSelectRun, onRunDeleted }: ChatPane
                       className="w-20 bg-rw-input border border-rw-border rounded px-2 py-1 text-xs text-rw-text focus:border-rw-accent/50 outline-none"
                     />
                   </div>
+                </div>
+              )}
+            </div>
+
+            {/* Spend ceiling — stops a runaway hunt; empty means no limit. */}
+            <div className="mt-3 w-full max-w-sm">
+              <button
+                onClick={() => setShowBudget(!showBudget)}
+                className="flex items-center gap-2 text-xs text-rw-dim hover:text-rw-muted transition-colors mx-auto"
+              >
+                <DollarSign size={12} /> Spend limit{" "}
+                {showBudget ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                {showBudget && Number(budgetUsd) > 0 && (
+                  <span className="text-[10px] text-rw-accent font-medium">
+                    ${Number(budgetUsd).toFixed(2)}
+                  </span>
+                )}
+              </button>
+              {showBudget && (
+                <div className="mt-3 bg-rw-elevated border border-rw-border rounded-lg p-3 animate-fade-in">
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="budget-usd" className="text-[10px] text-rw-dim w-14 shrink-0">
+                      Max USD
+                    </label>
+                    <input
+                      id="budget-usd"
+                      type="number"
+                      min="0"
+                      step="0.25"
+                      placeholder="No limit"
+                      value={budgetUsd}
+                      onChange={(e) => setBudgetUsd(e.target.value)}
+                      className="w-24 bg-rw-input border border-rw-border rounded px-2 py-1 text-xs text-rw-text placeholder-rw-dim focus:border-rw-accent/50 outline-none"
+                    />
+                  </div>
+                  <p className="mt-2 text-[10px] leading-relaxed text-rw-dim">
+                    The hunt stops once estimated LLM spend reaches this, keeping whatever it
+                    found. Checked between agent tasks, so a single task can overshoot slightly.
+                  </p>
                 </div>
               )}
             </div>

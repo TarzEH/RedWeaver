@@ -161,7 +161,17 @@ def _finding(run, data) -> None:
                 data["epss_score"] = epss
         except Exception:
             pass
+    # Reuse the id the engine already stamped on the published event. The UI
+    # merges the live event stream with this table keyed on id; minting a fresh
+    # uuid here put the two in different id spaces, so every finding rendered
+    # twice and a refuted one came back through its stream twin.
+    # Passed as **kwargs, not id=None — an explicit None would override the
+    # model's uuid4 default instead of falling back to it.
+    incoming_id = _incoming_uuid(data.get("id"))
+    id_kwarg = {"id": incoming_id} if incoming_id else {}
+
     f = Finding(
+        **id_kwarg,
         run=run,
         session=run.session,
         target=run.target_obj,
@@ -185,6 +195,24 @@ def _finding(run, data) -> None:
     if Finding.objects.filter(run=run, dedup_key=f.dedup_key).exists():
         return
     f.save()
+
+
+def _incoming_uuid(value):
+    """Return the event's id as a UUID, or None to let the model mint one.
+
+    The engine supplies a uuid4 string; anything unparseable falls back to the
+    model default rather than failing the write — losing a finding is far worse
+    than losing the id correlation for one row.
+    """
+    import uuid
+
+    if not value:
+        return None
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        logger.debug("finding event carried a non-UUID id %r; generating one", value)
+        return None
 
 
 def _huntflow_added(run, data, seq) -> None:

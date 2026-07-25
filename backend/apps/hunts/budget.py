@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import os
+from decimal import Decimal, InvalidOperation
 
 from .costs import estimate_cost_usd
 
@@ -24,6 +25,26 @@ logger = logging.getLogger(__name__)
 
 class BudgetExceeded(RuntimeError):
     """Raised when a run's cumulative estimated spend passes its ceiling."""
+
+
+def parse_budget_usd(value) -> Decimal | None:
+    """Read an optional spend ceiling supplied by an API caller.
+
+    Returns None for anything absent, non-numeric, zero or negative, which a run
+    treats as "no per-run limit" (falling back to the RUN_BUDGET_USD default).
+
+    Zero deliberately maps to None rather than to a real ceiling of $0 — that
+    would abort every hunt at the first task boundary. And a malformed value
+    must never fail the request: the ceiling is a guard rail, not the point of
+    the call.
+    """
+    if value is None or value == "":
+        return None
+    try:
+        budget = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    return budget if budget > 0 else None
 
 
 def default_budget_usd() -> float:

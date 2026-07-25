@@ -16,8 +16,9 @@ class FindingSerializer(serializers.ModelSerializer):
                   "evidence", "remediation", "agent_source", "tool_used",
                   "cvss_score", "cve_ids", "timestamp",
                   "status", "confidence", "exploitability", "cisa_kev", "epss_score",
+                  "verified_by_agent",
                   "risk_score", "risk_decision", "assignee", "assignee_email")
-        read_only_fields = ("id", "timestamp")
+        read_only_fields = ("id", "timestamp", "verified_by_agent")
 
     def _risk(self, obj):
         from .risk import risk_for_finding

@@ -365,6 +365,8 @@ export const api = {
       objective?: string;
       agent_selection?: string[];
       timeout_seconds?: number;
+      /** Stop the hunt once estimated LLM spend reaches this. Omit for no limit. */
+      budget_usd?: number;
       ssh_config?: Record<string, unknown>;
       attack_techniques?: string[];
       navigator_layer?: Record<string, unknown>;

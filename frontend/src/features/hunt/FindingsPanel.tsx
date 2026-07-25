@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Shield, ChevronDown, ChevronRight, ExternalLink, Search } from "lucide-react";
+import { Shield, ChevronDown, ChevronRight, ExternalLink, Search, Eye, EyeOff } from "lucide-react";
 import { SeverityBadge } from "../../components/ui/SeverityBadge";
+import { FindingStatusBadge, isRuledOut } from "../../components/ui/FindingStatusBadge";
 import { Input } from "../../components/ui/Input";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { useHuntContext } from "../../contexts/HuntContext";
@@ -26,6 +27,8 @@ const SSVC_CLS: Record<string, string> = {
 export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
   const [apiFindings, setApiFindings] = useState<Finding[]>([]);
   const [filter, setFilter] = useState<Severity | "all">("all");
+  // Default: hide what the verifier refuted — that matches the pipeline's delivered output.
+  const [hideRuledOut, setHideRuledOut] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -47,23 +50,49 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
   }, [runId, streamDone]);
 
   const findings = useMemo(() => {
-    const byId = new Map<string, Finding>();
-    for (const f of apiFindings) byId.set(f.id, f);
-    for (const f of sseFindings) byId.set(f.id, f);
-    return Array.from(byId.values());
-  }, [apiFindings, sseFindings]);
+    // Once the run is over the persisted table is the system of record: the
+    // engine publishes a finding event *before* the recorder applies its dedup
+    // check, so the stream retains emissions that were never stored. Keeping
+    // them would over-count a finished run against its own report.
+    const live = !streamDone || apiFindings.length === 0 ? sseFindings : [];
+
+    // Key on the backend's own dedup key, not on `id`: several agents report
+    // the same issue and each emission carries its own uuid, while the backend
+    // collapses them into one row. Without this, a finding shows up once per
+    // agent that mentioned it, and a refuted one sneaks back via a stream twin
+    // that has no `status`. Stream first so the persisted copy wins — only it
+    // carries the verifier's verdict and the triage state.
+    const byKey = new Map<string, Finding>();
+    for (const f of [...live, ...apiFindings]) {
+      byKey.set(
+        `${(f.title || "").toLowerCase().trim()}|${(f.affected_url || "").toLowerCase().trim()}|${f.severity}`,
+        f,
+      );
+    }
+    return Array.from(byKey.values());
+  }, [apiFindings, sseFindings, streamDone]);
 
   const toggleExpand = (id: string) =>
     setExpandedIds((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
-  const sorted = [...findings].sort((a, b) => (SEV_PRIORITY[a.severity] ?? 4) - (SEV_PRIORITY[b.severity] ?? 4));
+  const ruledOutCount = findings.filter((f) => isRuledOut(f.status)).length;
+  /** The population every list and facet count below describes. */
+  const population = hideRuledOut ? findings.filter((f) => !isRuledOut(f.status)) : findings;
+  const excludingRuledOut = hideRuledOut && ruledOutCount > 0;
+
+  // Ruled-out findings (when shown) sink below live ones, then severity order.
+  const sorted = [...population].sort(
+    (a, b) =>
+      Number(isRuledOut(a.status)) - Number(isRuledOut(b.status)) ||
+      (SEV_PRIORITY[a.severity] ?? 4) - (SEV_PRIORITY[b.severity] ?? 4),
+  );
   const searched = searchQuery
     ? sorted.filter((f) => f.title.toLowerCase().includes(searchQuery.toLowerCase()) || f.description.toLowerCase().includes(searchQuery.toLowerCase()))
     : sorted;
   const filtered = filter === "all" ? searched : searched.filter((f) => f.severity === filter);
 
-  const counts: Record<string, number> = { all: findings.length };
-  for (const s of ALL_SEVERITIES) counts[s] = findings.filter((f) => f.severity === s).length;
+  const counts: Record<string, number> = { all: population.length };
+  for (const s of ALL_SEVERITIES) counts[s] = population.filter((f) => f.severity === s).length;
 
   if (!runId) {
     return (
@@ -76,18 +105,47 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
       <div className="p-3">
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-medium text-rw-muted">Findings</span>
-          <span className="text-xs text-rw-dim">{findings.length}</span>
+          <div className="flex items-center gap-2">
+            {ruledOutCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setHideRuledOut((v) => !v)}
+                aria-pressed={hideRuledOut}
+                title={
+                  hideRuledOut
+                    ? `${ruledOutCount} finding(s) the verifier refuted are hidden — show them`
+                    : `Hide the ${ruledOutCount} finding(s) the verifier refuted`
+                }
+                className="inline-flex items-center gap-1 text-[10px] text-rw-dim hover:text-rw-muted transition-colors"
+              >
+                {hideRuledOut ? <EyeOff size={10} /> : <Eye size={10} />}
+                {ruledOutCount} ruled out
+              </button>
+            )}
+            <span className="text-xs text-rw-dim" title={excludingRuledOut ? "Excludes ruled-out findings" : "All findings"}>
+              {population.length}
+            </span>
+          </div>
         </div>
         {loading ? (
           <p className="text-xs text-rw-dim">Loading...</p>
-        ) : findings.length === 0 ? (
-          <p className="text-xs text-rw-dim">No findings yet.</p>
+        ) : population.length === 0 ? (
+          <p className="text-xs text-rw-dim">
+            {findings.length === 0 ? "No findings yet." : `All ${ruledOutCount} findings ruled out.`}
+          </p>
         ) : (
           <div className="space-y-1">
             {sorted.slice(0, 20).map((f) => (
               <div key={f.id} className="flex items-center gap-2 py-1 text-xs">
-                <SeverityBadge severity={f.severity} />
-                <span className="text-rw-text truncate flex-1">{f.title}</span>
+                <SeverityBadge severity={f.severity} className={isRuledOut(f.status) ? "opacity-50 grayscale" : ""} />
+                <FindingStatusBadge status={f.status} verifiedBy={f.verified_by_agent} compact />
+                <span
+                  className={`truncate flex-1 ${
+                    isRuledOut(f.status) ? "text-rw-dim line-through decoration-rw-dim/70" : "text-rw-text"
+                  }`}
+                >
+                  {f.title}
+                </span>
                 {f.cisa_kev && <span className="text-[9px] font-semibold text-rw-danger shrink-0" title="CISA KEV">KEV</span>}
                 {f.risk_decision && (
                   <span
@@ -112,7 +170,9 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
         <h2 className="text-lg font-semibold text-rw-text flex items-center gap-2">
           <Shield size={20} /> Findings
         </h2>
-        <span className="text-sm text-rw-dim">{findings.length} total</span>
+        <span className="text-sm text-rw-dim">
+          {excludingRuledOut ? `${population.length} shown · ${ruledOutCount} ruled out` : `${findings.length} total`}
+        </span>
       </div>
 
       <Input
@@ -144,7 +204,32 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
             {s} ({counts[s]})
           </button>
         ))}
+        {ruledOutCount > 0 && (
+          <button
+            onClick={() => setHideRuledOut((v) => !v)}
+            aria-pressed={hideRuledOut}
+            title={
+              hideRuledOut
+                ? "Findings the verifier refuted are hidden — click to show them"
+                : "Findings the verifier refuted are shown — click to hide them"
+            }
+            className={`ml-auto inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-colors ${
+              hideRuledOut ? "bg-rw-accent/15 text-rw-accent" : "bg-rw-surface text-rw-dim hover:text-rw-muted"
+            }`}
+          >
+            {hideRuledOut ? <EyeOff size={12} /> : <Eye size={12} />}
+            Hide ruled out ({ruledOutCount})
+          </button>
+        )}
       </div>
+
+      {ruledOutCount > 0 && (
+        <p className="-mt-3 mb-4 text-[11px] text-rw-dim">
+          Counts above {hideRuledOut ? "exclude" : "include"} {ruledOutCount} finding
+          {ruledOutCount === 1 ? "" : "s"} the verifier ruled out as false positive
+          {ruledOutCount === 1 ? "" : "s"}.
+        </p>
+      )}
 
       {loading ? (
         <p className="text-sm text-rw-dim">Loading findings...</p>
@@ -152,21 +237,35 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
         <p className="text-sm text-rw-dim">
           No findings{filter !== "all" ? ` with severity "${filter}"` : ""}
           {searchQuery ? ` matching "${searchQuery}"` : ""}.
+          {excludingRuledOut ? ` ${ruledOutCount} ruled-out finding${ruledOutCount === 1 ? " is" : "s are"} hidden.` : ""}
         </p>
       ) : (
         <div className="space-y-1">
           {filtered.map((f) => {
             const isExpanded = expandedIds.has(f.id);
+            const ruledOut = isRuledOut(f.status);
             return (
-              <div key={f.id} className="bg-rw-elevated border border-rw-border rounded-xl overflow-hidden">
+              <div
+                key={f.id}
+                className={`bg-rw-elevated border rounded-xl overflow-hidden ${
+                  ruledOut ? "border-dashed border-rw-border/60" : "border-rw-border"
+                }`}
+              >
                 <button
                   type="button"
                   onClick={() => toggleExpand(f.id)}
                   className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-rw-surface transition-colors"
                 >
                   {isExpanded ? <ChevronDown size={14} className="text-rw-dim shrink-0" /> : <ChevronRight size={14} className="text-rw-dim shrink-0" />}
-                  <SeverityBadge severity={f.severity} />
-                  <span className="text-sm text-rw-text truncate flex-1">{f.title}</span>
+                  <SeverityBadge severity={f.severity} className={ruledOut ? "opacity-50 grayscale" : ""} />
+                  <FindingStatusBadge status={f.status} verifiedBy={f.verified_by_agent} />
+                  <span
+                    className={`text-sm truncate flex-1 ${
+                      ruledOut ? "text-rw-dim line-through decoration-rw-dim/70" : "text-rw-text"
+                    }`}
+                  >
+                    {f.title}
+                  </span>
                   {f.cisa_kev && (
                     <span className="text-[10px] font-semibold text-rw-danger shrink-0" title="CISA Known Exploited Vulnerability">KEV</span>
                   )}

@@ -185,6 +185,8 @@ export interface Finding {
   epss_score?: number | null;
   risk_score?: number | null;
   risk_decision?: string;
+  /** Agent that adjudicated this finding (e.g. "verifier"); empty if never verified. */
+  verified_by_agent?: string;
 }
 
 export interface ServiceInfo {
@@ -234,7 +236,14 @@ export interface ReportCost {
   total_usd?: number;
   input_tokens?: number;
   output_tokens?: number;
+  total_tokens?: number;
   model?: string;
+  /** True when the model has no price entry, so total_usd is a rough guess. */
+  is_estimate?: boolean;
+  /** Effective spend ceiling for the run (per-run, else the install default). */
+  budget_usd?: number | null;
+  /** Fraction of the budget consumed (0..1+), when a budget was set. */
+  budget_used_fraction?: number | null;
 }
 
 export interface VulnerabilityReport {

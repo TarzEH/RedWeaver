@@ -35,6 +35,8 @@ export function DashboardPage() {
   const [runsLoading, setRunsLoading] = useState(true);
   const [findingsLoading, setFindingsLoading] = useState(true);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Skeletons belong to the very first findings load only — see the effect below.
+  const findingsFetchedRef = useRef(false);
 
   const fetchRuns = () => {
     api.runs.list().then(setRuns).catch(() => {}).finally(() => setRunsLoading(false));
@@ -42,12 +44,31 @@ export function DashboardPage() {
 
   useEffect(() => { fetchRuns(); }, []);
 
+  const finishedRuns = useMemo(
+    () => runs.filter((r) => r.status === "completed" || r.status === "failed").slice(0, 5),
+    [runs],
+  );
+  // The 5s poll hands back a brand-new array every time, so `runs` changes identity
+  // even when the data is unchanged. Key the findings refetch on the finished runs'
+  // identity+status instead — a primitive that only moves when a refetch is warranted.
+  const finishedKey = useMemo(
+    () => finishedRuns.map((r) => `${r.run_id}:${r.status}`).join("|"),
+    [finishedRuns],
+  );
+  // Read through a ref so the effect can use the current rows without depending on
+  // the array identity (target/created_at are fixed for a given run id).
+  const finishedRunsRef = useRef(finishedRuns);
+  finishedRunsRef.current = finishedRuns;
+
   useEffect(() => {
-    const finishedRuns = runs.filter((r) => r.status === "completed" || r.status === "failed").slice(0, 5);
-    if (finishedRuns.length === 0) { setAllFindings([]); setFindingsLoading(false); return; }
-    setFindingsLoading(true);
+    const targets = finishedRunsRef.current;
+    if (targets.length === 0) { setAllFindings([]); setFindingsLoading(false); return; }
+    // Only the first load may swap in skeletons; a background refresh keeps the
+    // charts mounted, otherwise recharts replays its entry animation on remount.
+    if (!findingsFetchedRef.current) setFindingsLoading(true);
+    let ignore = false;
     Promise.all(
-      finishedRuns.map((r) =>
+      targets.map((r) =>
         api.runs.findings(r.run_id)
           .then((findings) =>
             findings.map(
@@ -62,9 +83,15 @@ export function DashboardPage() {
           .catch(() => [] as TaggedFinding[]),
       ),
     )
-      .then((results) => setAllFindings(results.flat()))
-      .finally(() => setFindingsLoading(false));
-  }, [runs]);
+      // Overlapping polls can resolve out of order — drop superseded responses.
+      .then((results) => { if (!ignore) setAllFindings(results.flat()); })
+      .finally(() => {
+        if (ignore) return;
+        findingsFetchedRef.current = true;
+        setFindingsLoading(false);
+      });
+    return () => { ignore = true; };
+  }, [finishedKey]);
 
   const hasActive = runs.some((r) => r.status === "running" || r.status === "queued");
   useEffect(() => {

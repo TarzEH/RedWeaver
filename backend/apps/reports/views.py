@@ -10,7 +10,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.common.access import run_scope_q, scoped_get_or_404
+from apps.findings.models import FindingStatus
 from apps.findings.serializers import FindingSerializer
+from apps.hunts.budget import default_budget_usd
+from apps.hunts.costs import is_priced
 from apps.hunts.models import Run
 
 _SEV_TO_SARIF = {"critical": "error", "high": "error", "medium": "warning",
@@ -74,8 +77,82 @@ def _enrich_from_tools(run: Run):
     return services, sorted(t for t in techs if t), endpoints
 
 
+def cost_payload(
+    *,
+    prompt_tokens,
+    completion_tokens,
+    total_tokens,
+    cost_usd,
+    budget_usd=None,
+    model: str = "",
+) -> dict:
+    """Build the report's ``cost`` block from plain values.
+
+    Deliberately pure (no Django, no DB access): this dict is a contract with
+    the frontend ``ReportCost`` interface — the badge renders only when
+    ``total_usd`` is present — so it is unit-tested directly.
+
+    ``budget_usd`` of None or 0 means *no ceiling*, and both budget fields then
+    come back as ``None`` rather than 0, so the UI can tell "no budget" apart
+    from "a budget of zero that is already blown".
+    """
+    prompt = int(prompt_tokens or 0)
+    completion = int(completion_tokens or 0)
+    # Older/interrupted runs sometimes have the two halves but no total.
+    total = int(total_tokens or 0) or (prompt + completion)
+    usd = round(float(cost_usd or 0), 4)
+    model = (model or "").strip()
+
+    budget = float(budget_usd or 0)
+    budget_out = round(budget, 2) if budget > 0 else None
+    used_fraction = round(usd / budget, 4) if budget > 0 else None
+
+    return {
+        # Legacy keys — kept so existing consumers (the HTML export footer and
+        # any scripted client) keep working; the new keys sit alongside them.
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "usd": usd,
+        # Keys the frontend actually reads (see ReportCost in types/api.ts).
+        "total_usd": usd,
+        "input_tokens": prompt,
+        "output_tokens": completion,
+        "total_tokens": total,
+        "model": model,
+        # An unpriced (or unknown) model is billed at a fallback rate, so the
+        # figure is a guess — label it instead of presenting it as fact.
+        "is_estimate": not is_priced(model),
+        "budget_usd": budget_out,
+        "budget_used_fraction": used_fraction,
+    }
+
+
+def _run_model_name(run: Run) -> str:
+    """Best-effort model id for a run — it is not stored on ``Run``.
+
+    Re-resolved the same way ``apps.hunts.tasks`` does. This runs on a read path
+    serving an HTTP GET, so it is kept cheap (one indexed vault lookup, no
+    network call) and total: any failure degrades to an empty string rather
+    than 500-ing the whole report over a cost label.
+    """
+    try:
+        from apps.accounts.keys import keys_provider_for_user
+        from redweaver_engine.llm_factory import LLMFactory
+
+        return LLMFactory(keys_provider_for_user(run.created_by)).resolve_model_name() or ""
+    except Exception:
+        return ""
+
+
 def build_report(run: Run) -> dict:
-    findings = list(run.findings.all())
+    all_findings = list(run.findings.all())
+    # Findings triaged or verified as false positives stay in the `findings`
+    # array (with their status, so the UI can show what was ruled out) but must
+    # not inflate the severity counts, risk rating or remediation plan — a
+    # refuted "WordPress RCE" reported as a high would misstate the risk.
+    findings = [f for f in all_findings if f.status != FindingStatus.FALSE_POSITIVE]
+    false_positives = [f for f in all_findings if f.status == FindingStatus.FALSE_POSITIVE]
+
     services, technologies, endpoints = _enrich_from_tools(run)
     sev_counts = Counter(f.severity for f in findings)
     agent_counts = Counter(f.agent_source for f in findings if f.agent_source)
@@ -91,9 +168,13 @@ def build_report(run: Run) -> dict:
         "scope": run.scope or "",
         "objective": run.objective,
         "methodology": "Automated multi-agent assessment (recon, crawl, scan, fuzz, analysis).",
-        "findings": FindingSerializer(findings, many=True).data,
+        "findings": FindingSerializer(all_findings, many=True).data,
         "total_by_severity": dict(sev_counts),
         "findings_by_severity": dict(sev_counts),
+        # Counts above exclude these; surfaced separately so a reader can see
+        # what the verification pass ruled out rather than it vanishing.
+        "false_positive_count": len(false_positives),
+        "false_positive_titles": [f.title for f in false_positives],
         "report_markdown": run.report_markdown or "",
         "generated_at": run.completed_at.isoformat() if run.completed_at else run.created_at.isoformat(),
         "risk_rating": _risk_rating(sev_counts),
@@ -118,12 +199,18 @@ def build_report(run: Run) -> dict:
         ],
         "compliance": _compliance(findings),
         "branding": _branding(run),
-        "cost": {
-            "prompt_tokens": run.prompt_tokens,
-            "completion_tokens": run.completion_tokens,
-            "total_tokens": run.total_tokens,
-            "usd": float(run.cost_usd or 0),
-        },
+        "cost": cost_payload(
+            prompt_tokens=run.prompt_tokens,
+            completion_tokens=run.completion_tokens,
+            total_tokens=run.total_tokens,
+            cost_usd=run.cost_usd,
+            # The *effective* ceiling, matching what BudgetGuard actually
+            # enforced: a run with no per-run budget still falls back to the
+            # installation-wide RUN_BUDGET_USD, and reporting null there would
+            # tell the reader there was no limit when there was.
+            budget_usd=run.budget_usd or default_budget_usd(),
+            model=_run_model_name(run),
+        ),
     }
 
 
