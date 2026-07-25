@@ -247,3 +247,7 @@ backend/.pyyaml/
 *.db
 .beads-credential-key
 .beads/
+
+# Emitted by `tsc -b` (tsconfig.node.json cannot set noEmit). vite.config.js
+# would shadow vite.config.ts, so edits to the .ts would be silently ignored.
+frontend/vite.config.js
