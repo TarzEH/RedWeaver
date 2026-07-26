@@ -42,13 +42,3 @@ class BugHuntTool(Protocol):
     def is_available(self) -> bool:
         """Check if the tool binary/service is available."""
         ...
-
-
-def run_sync(
-    tool: BugHuntTool,
-    target: str,
-    scope: str = "",
-    options: dict[str, Any] | None = None,
-) -> str | dict[str, Any]:
-    """Run a tool synchronously."""
-    return tool.run(target, scope or "", options or {})

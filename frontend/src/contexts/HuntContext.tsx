@@ -9,7 +9,6 @@ interface HuntContextValue {
   findings: Finding[];
   activeAgent: string | null;
   done: boolean;
-  error: string | null;
   connected: boolean;
   reset: () => void;
   selectedRunId: string | null;
@@ -30,12 +29,12 @@ interface HuntProviderProps {
 
 export function HuntProvider({ selectedRunId, children }: HuntProviderProps) {
   const {
-    steps, graphState, findings, activeAgent, done, error, connected, reset,
+    steps, graphState, findings, activeAgent, done, connected, reset,
   } = useRunStream(selectedRunId, true);
 
   const value = useMemo<HuntContextValue>(
-    () => ({ steps, graphState, findings, activeAgent, done, error, connected, reset, selectedRunId }),
-    [steps, graphState, findings, activeAgent, done, error, connected, reset, selectedRunId]
+    () => ({ steps, graphState, findings, activeAgent, done, connected, reset, selectedRunId }),
+    [steps, graphState, findings, activeAgent, done, connected, reset, selectedRunId]
   );
 
   return <HuntContext.Provider value={value}>{children}</HuntContext.Provider>;

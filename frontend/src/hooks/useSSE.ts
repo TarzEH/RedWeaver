@@ -11,9 +11,6 @@ const isDev = import.meta.env.DEV;
 const WS_CLOSE_UNAUTHENTICATED = 4401;
 const WS_CLOSE_FORBIDDEN = 4403;
 
-/** Why the stream gave up, when it gave up for an auth reason. */
-export type StreamAuthError = "unauthenticated" | "unauthorized";
-
 interface UseSSEOptions {
   /** WebSocket URL to connect to. If null/undefined, no connection is made. */
   url: string | null | undefined;
@@ -37,7 +34,6 @@ interface UseSSEOptions {
 export function useSSE({ url, onEvent, onError, onOpen, onClose }: UseSSEOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const [connected, setConnected] = useState(false);
-  const [authError, setAuthError] = useState<StreamAuthError | null>(null);
   const reconnectRef = useRef<number | null>(null);
   const backoffRef = useRef(1000);
   const closedTerminalRef = useRef(false);
@@ -63,7 +59,6 @@ export function useSSE({ url, onEvent, onError, onOpen, onClose }: UseSSEOptions
     backoffRef.current = 1000;
     lastSeqRef.current = 0;
     eventCountRef.current = 0;
-    setAuthError(null);
 
     if (!url) {
       disconnect();
@@ -121,12 +116,9 @@ export function useSSE({ url, onEvent, onError, onOpen, onClose }: UseSSEOptions
           ev.code === WS_CLOSE_UNAUTHENTICATED ||
           ev.code === WS_CLOSE_FORBIDDEN
         ) {
-          // Deliberate rejection — reconnecting would just repeat it. Surface the
-          // reason so the UI can prompt for a fresh session instead of spinning.
+          // Deliberate rejection — reconnecting with the same (expired/foreign)
+          // token would just repeat it, so stop rather than hammer the server.
           closedTerminalRef.current = true;
-          setAuthError(
-            ev.code === WS_CLOSE_UNAUTHENTICATED ? "unauthenticated" : "unauthorized"
-          );
           if (isDev) console.warn(`[WS] Rejected (${ev.code}) — not reconnecting`);
           onClose?.();
           return;
@@ -155,5 +147,5 @@ export function useSSE({ url, onEvent, onError, onOpen, onClose }: UseSSEOptions
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [url]);
 
-  return { connected, authError, disconnect };
+  return { connected, disconnect };
 }

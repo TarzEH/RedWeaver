@@ -32,18 +32,6 @@ export const AGENT_DISPLAY_NAMES: Record<string, string> = Object.fromEntries(
   Object.entries(AGENT_CONFIG).map(([k, v]) => [k, v.displayName]),
 );
 
-export const AGENT_COLORS: Record<string, string> = Object.fromEntries(
-  Object.entries(AGENT_CONFIG).map(([k, v]) => [k, v.color]),
-);
-
-export const AGENT_ABBREVS: Record<string, string> = Object.fromEntries(
-  Object.entries(AGENT_CONFIG).map(([k, v]) => [k, v.abbrev]),
-);
-
-export const AGENT_SHORT_LABELS: Record<string, string> = Object.fromEntries(
-  Object.entries(AGENT_CONFIG).map(([k, v]) => [k, v.shortLabel]),
-);
-
 /** Label lookup including alternate node IDs from backend graph topology. */
 export const LABELS: Record<string, string> = {
   __start__: "START",

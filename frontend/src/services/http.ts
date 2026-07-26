@@ -19,7 +19,7 @@ export function clearTokens(): void {
   localStorage.removeItem(REFRESH_KEY);
 }
 
-export function getRefreshToken(): string | null {
+function getRefreshToken(): string | null {
   return localStorage.getItem(REFRESH_KEY);
 }
 

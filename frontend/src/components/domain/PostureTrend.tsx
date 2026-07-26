@@ -12,7 +12,14 @@ import {
 } from "recharts";
 import { api } from "../../services/api";
 import type { PostureSeries } from "../../services/api";
-import { severityHex, SEVERITY_ORDER } from "../../config/theme";
+import {
+  severityHex,
+  SEVERITY_ORDER,
+  CHART_AXIS_STROKE,
+  CHART_AXIS_TICK,
+  CHART_GRID_STROKE,
+  CHART_TOOLTIP_STYLE,
+} from "../../config/theme";
 import { Card } from "../ui/Card";
 import { EmptyState } from "../ui/EmptyState";
 import { Spinner } from "../ui/Spinner";
@@ -22,13 +29,6 @@ interface Props {
   sessionId: string;
   className?: string;
 }
-
-const TOOLTIP_STYLE = {
-  background: "#111827",
-  border: "1px solid #334155",
-  borderRadius: 8,
-  fontSize: 12,
-} as const;
 
 function shortDate(value: string): string {
   if (!value) return "";
@@ -142,10 +142,10 @@ export function PostureTrend({ sessionId, className }: Props) {
                 <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-            <XAxis dataKey="date" tick={{ fill: "#8b9cb3", fontSize: 11 }} stroke="#334155" />
-            <YAxis tick={{ fill: "#8b9cb3", fontSize: 11 }} stroke="#334155" width={36} />
-            <Tooltip contentStyle={TOOLTIP_STYLE} />
+            <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_STROKE} vertical={false} />
+            <XAxis dataKey="date" tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} />
+            <YAxis tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} width={36} />
+            <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
             <Area
               type="monotone"
               dataKey="exposure"
@@ -165,10 +165,10 @@ export function PostureTrend({ sessionId, className }: Props) {
         </span>
         <ResponsiveContainer width="100%" height={200}>
           <AreaChart data={chartData} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-            <XAxis dataKey="date" tick={{ fill: "#8b9cb3", fontSize: 11 }} stroke="#334155" />
-            <YAxis tick={{ fill: "#8b9cb3", fontSize: 11 }} stroke="#334155" width={36} allowDecimals={false} />
-            <Tooltip contentStyle={TOOLTIP_STYLE} />
+            <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_STROKE} vertical={false} />
+            <XAxis dataKey="date" tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} />
+            <YAxis tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} width={36} allowDecimals={false} />
+            <Tooltip contentStyle={CHART_TOOLTIP_STYLE} />
             {SEVERITY_ORDER.map((sev) => (
               <Area
                 key={sev}

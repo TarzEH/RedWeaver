@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Brain, ChevronDown, ChevronRight, Shield } from "lucide-react";
 import { AgentPanel } from "./AgentPanel";
+import { Spinner } from "../ui/Spinner";
 import type { ReasoningStep } from "../../types/events";
 import { EVENT_AGENT_COMPLETE, EVENT_AGENT_START, EVENT_FINDING } from "../../types/events";
 
@@ -51,7 +52,7 @@ export function ThinkingStream({ steps, activeAgent, isActive, collapsed, onTogg
             <Shield size={8} /> {totalFindings}
           </span>
         )}
-        {isActive && <div className="w-3 h-3 border border-rw-accent/30 border-t-rw-accent rounded-full animate-spin ml-1" />}
+        {isActive && <Spinner size="xs" className="ml-1" />}
         <span className="ml-auto">
           {collapsed ? <ChevronRight size={13} className="text-rw-dim" /> : <ChevronDown size={13} className="text-rw-dim" />}
         </span>

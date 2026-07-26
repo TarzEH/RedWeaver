@@ -7,7 +7,6 @@ for network pivoting and accessing internal services.
 from __future__ import annotations
 
 import json
-import threading
 from typing import Type
 
 from crewai.tools import BaseTool

@@ -95,10 +95,6 @@ class ToolRegistry:
             if t.category in categories and t.is_available()
         ]
 
-    def get_tools_for_node(self, node_id: str) -> list[BugHuntTool]:
-        """Backward-compatible alias for get_tools_for_agent."""
-        return self.get_tools_for_agent(node_id)
-
     def get_availability_report(self) -> dict[str, list[dict[str, Any]]]:
         """Return category -> list of tools with availability status."""
         report: dict[str, list[dict[str, Any]]] = {}

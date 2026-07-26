@@ -12,7 +12,12 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from "recharts";
-import { severityHex } from "../../../config/theme";
+import {
+  severityHex,
+  CHART_AXIS_STROKE,
+  CHART_AXIS_TICK,
+  CHART_GRID_STROKE,
+} from "../../../config/theme";
 import type { Finding } from "../../../types/api";
 import { cn } from "../../../lib/cn";
 
@@ -98,7 +103,7 @@ export function CvssEpssScatter({ findings, className }: CvssEpssScatterProps) {
       ) : (
         <ResponsiveContainer width="100%" height={300}>
           <ScatterChart margin={{ top: 12, right: 20, bottom: 28, left: 4 }}>
-            <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" />
+            <CartesianGrid stroke={CHART_GRID_STROKE} strokeDasharray="3 3" />
             {/* Shaded upper-right "fix now" quadrant */}
             <ReferenceArea
               x1={EPSS_THRESHOLD}
@@ -118,26 +123,26 @@ export function CvssEpssScatter({ findings, className }: CvssEpssScatterProps) {
                 fontWeight: 700,
               }}
             />
-            <ReferenceLine x={EPSS_THRESHOLD} stroke="#334155" strokeDasharray="2 4" />
-            <ReferenceLine y={CVSS_THRESHOLD} stroke="#334155" strokeDasharray="2 4" />
+            <ReferenceLine x={EPSS_THRESHOLD} stroke={CHART_AXIS_STROKE} strokeDasharray="2 4" />
+            <ReferenceLine y={CVSS_THRESHOLD} stroke={CHART_AXIS_STROKE} strokeDasharray="2 4" />
             <XAxis
               type="number"
               dataKey="epss"
               name="EPSS"
               domain={[0, 1]}
               tickFormatter={(v: number) => `${Math.round(v * 100)}%`}
-              tick={{ fill: "#94a3b8", fontSize: 11 }}
-              stroke="#334155"
-              label={{ value: "EPSS (exploit likelihood)", position: "insideBottom", offset: -16, fill: "#8b9cb3", fontSize: 11 }}
+              tick={CHART_AXIS_TICK}
+              stroke={CHART_AXIS_STROKE}
+              label={{ value: "EPSS (exploit likelihood)", position: "insideBottom", offset: -16, ...CHART_AXIS_TICK }}
             />
             <YAxis
               type="number"
               dataKey="cvss"
               name="CVSS"
               domain={[0, 10]}
-              tick={{ fill: "#94a3b8", fontSize: 11 }}
-              stroke="#334155"
-              label={{ value: "CVSS", angle: -90, position: "insideLeft", fill: "#8b9cb3", fontSize: 11 }}
+              tick={CHART_AXIS_TICK}
+              stroke={CHART_AXIS_STROKE}
+              label={{ value: "CVSS", angle: -90, position: "insideLeft", ...CHART_AXIS_TICK }}
             />
             <ZAxis range={[60, 60]} />
             <Tooltip content={<TooltipContent />} cursor={{ strokeDasharray: "3 3", stroke: "#475569" }} />

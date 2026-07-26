@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.0--beta-00d4aa?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/version-0.10.0-00d4aa?style=flat-square" alt="Version" />
   <img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License" />
   <img src="https://img.shields.io/badge/python-3.11+-3776ab?style=flat-square" alt="Python" />
   <img src="https://img.shields.io/badge/django-5.1-092e20?style=flat-square" alt="Django" />
@@ -60,33 +60,55 @@ The web UI is a React app (Vite) served behind nginx in Docker. After login you 
 
 | Area | What you use it for |
 |------|---------------------|
-| **Dashboard** | Hunt stats, severity breakdown, latest findings at a glance |
-| **Hunt** | Chat-driven hunts with live agent stream (WebSocket), in-thread pentest report, and agent flow panel |
-| **Findings** | Sortable vulnerability list with severity badges, CVE references, and evidence |
+| **Dashboard** | Portfolio view — every KPI carries a 7-day baseline, a trend and a sparkline, plus **spend**: total, p50/p95 and the runs that dominate the bill |
+| **Hunt** | Three states, not a thread: a form to scope the hunt, a live run view (agent stream over WebSocket, findings as they land, **running cost**, Stop), then the report |
+| **Findings** | Triage list with severity, CVE, EPSS/KEV and evidence — and the verifier's verdict, so a refuted finding reads as ruled out instead of quietly disappearing |
 | **Behind the scenes** | Per-run debug view — live topology, agent timeline, tool executions with **raw output**, screenshots, and the full event log; plus a one-click **Attack playbook** (per-finding attack steps with commands + MITRE ATT&CK, grounded in the pgvector KB) |
 | **Sessions & Targets** | Workspace-scoped projects, session management, target tracking, and **Plan with ATT&CK** — scope a hunt to chosen MITRE ATT&CK techniques |
 | **Knowledge Base** | Searchable practitioner methodology library (pgvector RAG) — 14 domains (recon → web → AD → cloud → C2) with commands, payloads, and detection/mitigation |
-| **Settings** | Multi-provider LLM configuration (OpenAI, Anthropic, Google, Ollama, Meta) |
+| **Settings** | Multi-provider LLM configuration (OpenAI, Anthropic, Google, Ollama). Per-agent model routing and spend ceilings are configured by environment — see [Tuning](docs/TUNING.md) |
 
 ### Screenshots
 
 PNG captures live under `docs/screenshots/`. When updating them, use masked or empty API-key fields and non-sensitive targets only — never commit real keys or private hostnames in images.
 
+> The captures below are of **seeded demo data**, not a real engagement. Targets
+> use the reserved `.example` documentation domain (RFC 2606) so no screenshot can
+> be mistaken for a real result or send anyone scanning a live host. Severities,
+> CVSS/EPSS/KEV and verification verdicts are representative values chosen to show
+> the full range the UI renders.
+
 <p align="center">
   <img src="docs/screenshots/rw-dashboard.png" alt="Dashboard" width="720" /><br/>
-  <sub>Dashboard — hunt stats, severity breakdown, and latest findings</sub>
+  <sub>Dashboard — KPIs with 7-day baselines, severity breakdown, spend, and latest findings</sub>
 </p>
 <p align="center">
-  <img src="docs/screenshots/rw-hunt.png" alt="Hunt workspace" width="720" /><br/>
-  <sub>Hunt — pentest report, agent flow panel, and chat interface</sub>
+  <img src="docs/screenshots/rw-hunt.png" alt="Start a hunt" width="720" /><br/>
+  <sub>Start a hunt — target, objective, optional scope, spend limit and SSH access, with the agent topology alongside</sub>
 </p>
 <p align="center">
   <img src="docs/screenshots/rw-findings.png" alt="Findings" width="720" /><br/>
   <sub>Findings — vulnerability list sorted by severity with CVE details</sub>
 </p>
 <p align="center">
+  <img src="docs/screenshots/rw-report.png" alt="Report" width="720" /><br/>
+  <sub>Report — executive summary, severity breakdown, CVSS×EPSS scatter, framework coverage and per-run cost</sub>
+</p>
+<p align="center">
+  <img src="docs/screenshots/rw-compare.png" alt="Run compare" width="720" /><br/>
+  <sub>Compare — a run against an earlier baseline of the same target, split into new / recurring / fixed</sub>
+</p>
+<p align="center">
   <img src="docs/screenshots/rw-sessions.png" alt="Sessions & Targets" width="720" /><br/>
   <sub>Sessions & Targets — workspaces and project management</sub>
+</p>
+<p align="center">
+  <img src="docs/screenshots/rw-session-detail.png" alt="Session detail" width="720" /><br/>
+  <sub>Session detail — targets and every hunt run under a session, with Launch Hunt and Plan with ATT&amp;CK</sub>
+</p>
+<p align="center">
+  <img src="docs/screenshots/rw-knowledge.png" alt="Knowledge base" width="720" /><br/>
+  <sub>Knowledge Base — category tree, document reader, and semantic search over the pgvector index</sub>
 </p>
 <p align="center">
   <img src="docs/screenshots/rw-settings.png" alt="Settings" width="720" /><br/>
@@ -117,7 +139,7 @@ docker compose up --build
 open http://localhost:5173
 ```
 
-The API is exposed at **http://localhost:8001** (host port mapped to the backend container). The UI talks to it through the frontend nginx proxy (`/api`). Type a target URL in the Hunt chat and the agents will start hunting.
+The API is exposed at **http://localhost:8001** (host port mapped to the backend container). The UI talks to it through the frontend nginx proxy (`/api`). Enter a target on the Hunt screen — optionally with a scope, a spend ceiling and an ATT&CK focus — and the agents start hunting.
 
 ### Demo login (first boot)
 
@@ -142,11 +164,29 @@ On a **fresh** Postgres volume, the one-shot `migrate` service seeds a demo admi
 
 ### How It Works
 
-1. **You describe a target** — "Scan example.com for vulnerabilities"
+1. **You scope the hunt** — target, objective, optional scope, an optional spend ceiling, and an optional ATT&CK focus
 2. **CrewAI builds a crew** — target type (web vs host) and options pick which agents run; an optional **pre-hunt ATT&CK plan** narrows the crew to the agents behind the techniques you chose and injects a focus directive into each task; tasks chain with shared context
 3. **Tasks run in order, with parallel batches where safe** — after **Recon** completes, **Fuzzer** and **Vuln Scanner** are scheduled as **asynchronous tasks** so CrewAI can run them **in parallel**, then **Crawler** and later steps run when their inputs are ready. Steps that need prior outputs (e.g. exploit analysis after all scans) still wait — correctness comes before wall-clock speed.
 4. **Findings stream in real-time** — a WebSocket (Django Channels) pushes every tool call, thought, transition, and finding to the UI; all of it is persisted to Postgres and replayed on reconnect
-5. **Report is generated** — the Report Writer produces a **structured Markdown** pentest report (headings, tables, lists, code blocks, callouts), grounded in hunt context and the pgvector knowledge base; the UI can render it in Standard or Enhanced styling. An optional **Attack playbook** turns the findings into per-finding attack steps with commands and MITRE ATT&CK techniques.
+5. **Findings are verified** — a separate agent tries to **refute** each finding against its own evidence, seeing only the evidence-bearing fields (severity labels and remediation prose are withheld so it judges proof, not confident writing). Refuted findings stay visible but stop feeding the severity counts, the risk rating and the remediation plan
+6. **Report is generated** — the Report Writer produces a **structured Markdown** pentest report (headings, tables, lists, code blocks, callouts), grounded in hunt context and the pgvector knowledge base; the UI can render it in Standard or Enhanced styling. An optional **Attack playbook** turns the findings into per-finding attack steps with commands and MITRE ATT&CK techniques.
+
+### Verification, cost, and measuring the hunt
+
+Three things that make a run trustworthy rather than merely impressive. All of them are documented in depth in **[Tuning a hunt](docs/TUNING.md)**.
+
+**Findings get a second opinion.** The agents that find issues are the same ones reporting them, and they reliably produce the confident-but-unsupported case: a CVE matched to a banner with no version tying it to the host. The verification pass exists to say *no*. On a real run against a Cloudflare-fronted host it refuted a "critical" RCE and three other CVEs — none of which the target ran — taking the report from **Critical** to **Info**. Refuted findings are never deleted; they are marked, and the UI shows how many were ruled out at each severity so a working verifier never looks like a broken scan.
+
+**Spend is visible and capped.** Cost is estimated per run from token usage, refreshed at every agent-task boundary, and shown while the hunt is still running. A per-run ceiling (`budget_usd`, or the `RUN_BUDGET_USD` default) stops a hunt that runs away, keeping everything found so far. The dashboard reports **p50 and p95, never a mean** — agent run cost is long-tailed, so an average sits above almost every run while hiding the few that spend the money.
+
+**Hunt quality is measurable.** `manage.py eval_hunt` scores a completed run's findings against a hand-written answer key and reports recall, precision and noise. It is a replay — it reads the database, makes no LLM calls and costs nothing, so it can run on every change:
+
+```bash
+python manage.py eval_hunt --run <run-id> --golden evals/golden/juice-shop.yaml
+python manage.py eval_hunt --run <run-id> --golden <key> --compare evals/baseline.json
+```
+
+`--compare` names regressions outright (`REGRESSION — no longer found: sqli`). Findings the key is silent about are reported as noise and never folded into precision — "the key doesn't mention it" is not the same as "it's wrong".
 
 ### Why the graph looks “parallel”
 

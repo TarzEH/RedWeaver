@@ -4,7 +4,7 @@ import { Server, Network, Cpu, ArrowUpDown, ShieldOff, Zap } from "lucide-react"
 import { api } from "../../services/api";
 import type { AssetInventory, AssetHost } from "../../services/api";
 import type { Finding, Severity } from "../../types/api";
-import { SEVERITY_ORDER, severityHex } from "../../config/theme";
+import { SEVERITY_ORDER, normSeverity, severityHex } from "../../config/theme";
 import { Card } from "../../components/ui/Card";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { SeverityBadge } from "../../components/ui/SeverityBadge";
@@ -17,40 +17,43 @@ import { PostureTrend } from "../../components/domain/PostureTrend";
 
 type SortKey = "severity" | "findings";
 
-/** Normalize an arbitrary severity string to a known Severity. */
-function normSeverity(value: string): Severity {
-  const v = value?.toLowerCase() as Severity;
-  return SEVERITY_ORDER.includes(v) ? v : "info";
-}
-
 /** Rank for sorting — lower index (critical) sorts first when descending. */
 function severityRank(value: string): number {
   return SEVERITY_ORDER.indexOf(normSeverity(value));
 }
 
 /**
- * The assets endpoint returns per-host max-severity + a finding count rather
- * than full Finding objects. Synthesize lightweight Finding stand-ins so the
- * ExposureCard can score the inventory: each host contributes one finding at
- * its max severity, plus the remaining findings at "low" (a conservative
- * floor we cannot resolve precisely from the summary payload).
+ * The assets endpoint returns per-host counts rather than full Finding
+ * objects, so expand `by_severity` into lightweight stand-ins for the
+ * ExposureCard, which scores a Finding[].
+ *
+ * This used to guess: one finding at the host's max severity and *every other
+ * one at "low"*. That is not a conservative floor — it is wrong in both
+ * directions, and it put "Low 42" in the header of a session whose real split
+ * was 12 critical / 18 high / 15 medium / 2 low, directly contradicting the
+ * severity chart rendered underneath it. `by_severity` removes the guess.
+ * Hosts from an older backend without the field fall back to the max severity
+ * for every finding, which at least never invents a severity that is absent.
  */
 function syntheticFindings(assets: AssetHost[]): Finding[] {
   const out: Finding[] = [];
   for (const a of assets) {
-    const sev = normSeverity(a.max_severity);
-    const n = Math.max(a.findings, sev !== "info" ? 1 : 0);
-    for (let i = 0; i < n; i++) {
-      out.push({
-        id: `${a.host}-${i}`,
-        title: "",
-        severity: i === 0 ? sev : "low",
-        description: "",
-        affected_url: a.host,
-        agent_source: "asset-inventory",
-        cve_ids: [],
-        timestamp: "",
-      });
+    const max = normSeverity(a.max_severity);
+    const counts: Partial<Record<Severity, number>> =
+      a.by_severity ?? { [max]: Math.max(a.findings, max !== "info" ? 1 : 0) };
+    for (const sev of SEVERITY_ORDER) {
+      for (let i = 0; i < (counts[sev] ?? 0); i++) {
+        out.push({
+          id: `${a.host}-${sev}-${i}`,
+          title: "",
+          severity: sev,
+          description: "",
+          affected_url: a.host,
+          agent_source: "asset-inventory",
+          cve_ids: [],
+          timestamp: "",
+        });
+      }
     }
   }
   return out;

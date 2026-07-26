@@ -197,7 +197,8 @@ class Run(TimeStampedUUIDModel):
         help_text="Stop the hunt once estimated LLM spend reaches this. Empty = no limit.",
     )
 
-    # Artifacts (report kept for the report API; messages = chat transcript)
+    # Artifacts. `messages` is the run's narrative summary, written once at the
+    # end of execute_run in the {role, content} shape the frontend still reads.
     report_markdown = models.TextField(blank=True, default="")
     messages = models.JSONField(default=list, blank=True)
 

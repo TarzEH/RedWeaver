@@ -26,11 +26,6 @@ _agent: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
 )
 
 
-def set_run_context(run_id: Optional[str], agent: Optional[str] = None):
-    """Set the active run/agent; returns reset tokens."""
-    return _run_id.set(run_id), _agent.set(agent)
-
-
 def set_active_agent(agent: Optional[str]):
     """Update only the active agent (called as agents hand off)."""
     return _agent.set(agent)

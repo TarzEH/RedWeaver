@@ -54,7 +54,7 @@ export function HuntRunHeader({
   };
 
   return (
-    <div className="border-b border-rw-border bg-rw-elevated animate-fade-in">
+    <div className="border-b border-rw-border bg-rw-elevated">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 text-sm">
         <Crosshair size={14} className="shrink-0 text-rw-accent" aria-hidden />
         <span className="font-mono text-xs text-rw-text">{run.target}</span>

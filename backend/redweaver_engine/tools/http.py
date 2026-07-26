@@ -3,7 +3,7 @@ from typing import Any
 
 from redweaver_engine.clients.virustotal_client import VirusTotalClient
 from redweaver_engine.clients.urlscan_client import URLScanClient
-from redweaver_engine.tools.base import BugHuntTool, ToolCategory
+from redweaver_engine.tools.base import ToolCategory
 
 
 class VirusTotalURLCheckTool:

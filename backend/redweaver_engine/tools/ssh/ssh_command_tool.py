@@ -7,7 +7,7 @@ returning stdout, stderr, and exit code.
 from __future__ import annotations
 
 import json
-from typing import Any, Type
+from typing import Type
 
 from crewai.tools import BaseTool
 from pydantic import BaseModel, Field

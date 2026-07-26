@@ -24,7 +24,7 @@ export function CategoryTree({ categories, loading, selectedFile, onSelectFile }
   if (loading) {
     return (
       <div className="flex items-center justify-center py-10">
-        <Spinner size="sm" label="Loading categories" />
+        <Spinner size="sm" label="Loading categories…" />
       </div>
     );
   }

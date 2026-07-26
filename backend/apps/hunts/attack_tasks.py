@@ -4,7 +4,6 @@ from __future__ import annotations
 import logging
 
 from celery import shared_task
-from django.utils import timezone
 
 from apps.accounts.keys import keys_provider_for_user
 from apps.common.redaction import scrub_secrets
@@ -80,11 +79,7 @@ def generate_attack_playbook(self, run_id: str) -> None:
             publish(str(run.id), "attack_error", {"error": safe_error})
 
 
-import os as _os
-import httpx as _httpx
 from concurrent.futures import ThreadPoolExecutor as _Pool
-
-_KB_URL = _os.environ.get("KNOWLEDGE_SERVICE_URL", "http://knowledge:8100").rstrip("/")
 
 # Map a finding to the most relevant KB methodology queries (so we pull the
 # right attack technique + commands, not generic chunks).

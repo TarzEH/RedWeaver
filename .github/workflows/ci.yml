@@ -28,7 +28,8 @@ jobs:
         run: |
           ruff check \
             apps/findings/risk.py apps/findings/attack_map.py \
-            apps/hunts/costs.py apps/observability/confidence.py \
+            apps/hunts/costs.py apps/hunts/assets.py \
+            apps/observability/confidence.py \
             redweaver_engine/tools/scope.py tests/
       - name: Unit tests
         run: pytest -q

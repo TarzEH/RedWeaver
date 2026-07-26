@@ -250,4 +250,12 @@ backend/.pyyaml/
 
 # Emitted by `tsc -b` (tsconfig.node.json cannot set noEmit). vite.config.js
 # would shadow vite.config.ts, so edits to the .ts would be silently ignored.
+# The same build also drops declarations beside it, which npm run build
+# recreates on every run.
 frontend/vite.config.js
+frontend/vite.config.d.ts
+frontend/vite.config.d.ts.map
+
+# Playwright MCP scratch output (screenshots land here before being copied
+# into docs/screenshots/). Never a build input.
+.playwright-mcp/

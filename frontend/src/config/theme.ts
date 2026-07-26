@@ -51,6 +51,16 @@ export function severityStyle(sev: string) {
 
 export const SEVERITY_ORDER: Severity[] = ["critical", "high", "medium", "low", "info"];
 
+/**
+ * Coerce an arbitrary severity string (backend casing varies) to a known
+ * `Severity`, falling back to "info". Lives here beside `SEVERITY_ORDER`
+ * because two insight screens had grown identical private copies.
+ */
+export function normSeverity(value: string): Severity {
+  const v = value?.toLowerCase() as Severity;
+  return SEVERITY_ORDER.includes(v) ? v : "info";
+}
+
 const SEV_HEX: Record<Severity, string> = {
   critical: "#ef4444",
   high: "#f97316",
@@ -62,6 +72,34 @@ const SEV_HEX: Record<Severity, string> = {
 export function severityHex(sev: string): string {
   return SEV_HEX[sev as Severity] ?? SEV_HEX.info;
 }
+
+// --- Charts (recharts) ---
+
+/**
+ * One chart treatment for the whole app. Six charts each carried their own
+ * copy of these literals, and they had already drifted — the CVSS/EPSS scatter
+ * drew its axis *ticks* in `#94a3b8` and its axis *labels* in `#8b9cb3`, inside
+ * the same chart.
+ *
+ * Hex, not `var(--color-rw-*)`: recharts writes several of these into SVG
+ * presentation attributes and into canvas measurement, which is the same reason
+ * `severityHex()` exists. The values mirror the tokens in `index.css`.
+ */
+export const CHART_TOOLTIP_STYLE = {
+  background: "#111827", // --color-rw-elevated
+  border: "1px solid #334155", // --color-rw-border
+  borderRadius: 8,
+  fontSize: 12,
+} as const;
+
+/** Axis tick labels — `--color-rw-dim`, the WCAG-bumped muted grey. */
+export const CHART_AXIS_TICK = { fill: "#8b9cb3", fontSize: 11 } as const;
+
+/** Axis line / reference line — `--color-rw-border`. */
+export const CHART_AXIS_STROKE = "#334155";
+
+/** Cartesian grid — `--color-rw-border-subtle`, a step quieter than the axis. */
+export const CHART_GRID_STROKE = "#1e293b";
 
 // --- API Base ---
 

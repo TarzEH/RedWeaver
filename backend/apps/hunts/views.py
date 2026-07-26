@@ -1,8 +1,7 @@
 """DRF viewsets for runs, hunts, sessions, targets.
 
 Run and Hunt are the same model exposed two ways for frontend compatibility.
-Execution (start/stop/chat -> Celery) is wired in Phase F; the start/stop
-actions here update status and enqueue when the task is available.
+The start/stop actions update status and enqueue/revoke the Celery task.
 """
 import json
 import uuid
@@ -218,56 +217,25 @@ class ScheduleViewSet(viewsets.ModelViewSet):
 @permission_classes([IsAuthenticated])
 def session_assets(request, session_id):
     """Asset inventory: aggregate findings across a session's runs into hosts
-    with open ports, detected tech, finding counts and max severity."""
-    import re
-    from urllib.parse import urlparse
-
-    from apps.common.access import scoped_get_or_404, session_scope_q
+    with open ports, detected tech, and the full per-severity histogram."""
     from apps.findings.models import Finding
+    from apps.hunts.assets import aggregate_assets, host_of
+    from apps.observability.models import Screenshot
 
     sess = scoped_get_or_404(Session, request.user, session_scope_q, id=session_id)
-    rank = {"critical": 5, "high": 4, "medium": 3, "low": 2, "info": 1}
-
-    def host_of(url, fallback):
-        return (
-            (urlparse(url).hostname if "://" in (url or "") else "")
-            or (url or "").split("/")[0].split(":")[0]
-            or fallback or "unknown"
-        )
 
     # one screenshot per host (latest), for the asset-grid thumbnail
-    from apps.observability.models import Screenshot
     shots: dict = {}
     for s in Screenshot.objects.filter(run__session=sess).order_by("-taken_at"):
         h = host_of(s.url, "")
         if h and h not in shots:
             shots[h] = s.image.url if s.image else ""
 
-    assets: dict = {}
-    for f in Finding.objects.filter(session=sess).select_related("run"):
-        host = host_of(f.affected_url, f.run.target if f.run_id else "")
-        a = assets.setdefault(host, {"host": host, "findings": 0, "max_severity": "info",
-                                     "ports": set(), "technologies": set(), "cves": set(),
-                                     "exploit_available": False})
-        a["findings"] += 1
-        if rank.get(f.severity, 0) > rank.get(a["max_severity"], 0):
-            a["max_severity"] = f.severity
-        m = re.search(r"port\s*(\d{1,5})", (f.title or "").lower())
-        if m:
-            a["ports"].add(int(m.group(1)))
-        tm = re.search(r"detected\s+(.+?)(?:\s+version|\s+stack|$)", (f.title or "").lower())
-        if tm:
-            a["technologies"].add(tm.group(1).strip()[:40])
-        for c in (f.cve_ids or []):
-            a["cves"].add(c)
-        if f.cisa_kev or (f.exploitability or "").lower() in ("proven", "likely"):
-            a["exploit_available"] = True
-    out = [
-        {**a, "ports": sorted(a["ports"]), "technologies": sorted(a["technologies"]),
-         "cves": sorted(a["cves"]), "screenshot": shots.get(a["host"], "")}
-        for a in assets.values()
-    ]
-    out.sort(key=lambda x: (-rank.get(x["max_severity"], 0), -x["findings"]))
+    rows = (
+        (host_of(f.affected_url, f.run.target if f.run_id else ""), f)
+        for f in Finding.objects.filter(session=sess).select_related("run")
+    )
+    out = aggregate_assets(rows, shots)
     return Response({"session_id": str(sess.id), "asset_count": len(out), "assets": out})
 
 
@@ -283,7 +251,6 @@ def session_posture(request, session_id):
     """Posture-over-time: exposure score + severity counts per finished run."""
     from collections import Counter
 
-    from apps.common.access import scoped_get_or_404, session_scope_q
     sess = scoped_get_or_404(Session, request.user, session_scope_q, id=session_id)
     points = []
     # Every point needs the run's findings; without the prefetch a session on a

@@ -20,8 +20,6 @@ import {
   EVENT_GRAPH_STATE,
   EVENT_HUNT_COMPLETE,
   EVENT_HUNT_ERROR,
-  EVENT_SUBAGENT_SPAWN,
-  EVENT_TODO_UPDATE,
 } from "../types/events";
 
 /**
@@ -321,39 +319,6 @@ export function useRunStream(runId: string | null, enabled: boolean = true) {
               error: (data.error as string) || "Hunt failed",
             };
 
-          case EVENT_SUBAGENT_SPAWN: {
-            const subName = (data.subagent_name as string) || "";
-            return {
-              ...prev,
-              steps: [
-                ...prev.steps,
-                makeStreamStep(
-                  agent,
-                  EVENT_SUBAGENT_SPAWN,
-                  `Spawning sub-agent: ${subName} — ${(data.task_description as string) || ""}`
-                ),
-              ],
-            };
-          }
-
-          case EVENT_TODO_UPDATE: {
-            const todos = (data.todos as Array<{ task?: string; content?: string; status?: string }>) || [];
-            const planItems = todos.map(
-              (t) => `${t.status === "completed" ? "[x]" : "[ ]"} ${t.task || t.content || ""}`
-            );
-            return {
-              ...prev,
-              graphState: {
-                ...prev.graphState,
-                plan: planItems,
-              },
-              steps: [
-                ...prev.steps,
-                makeStreamStep("orchestrator", EVENT_TODO_UPDATE, `Plan updated: ${todos.length} tasks`),
-              ],
-            };
-          }
-
           default:
             return prev;
         }
@@ -363,10 +328,7 @@ export function useRunStream(runId: string | null, enabled: boolean = true) {
     [flushThinkingQueue]
   );
 
-  // `authError` is set when the server rejected the socket (expired/foreign token)
-  // and we stopped retrying — exposed so the UI can say so instead of showing an
-  // eternally "connecting" stream.
-  const { connected, authError } = useSSE({
+  const { connected } = useSSE({
     url,
     onEvent,
   });
@@ -498,7 +460,6 @@ export function useRunStream(runId: string | null, enabled: boolean = true) {
   return {
     ...state,
     connected,
-    authError,
     reset,
   };
 }

@@ -59,19 +59,124 @@ def default_budget_usd() -> float:
         return 0.0
 
 
+def _token_counters(metrics) -> tuple[int, int]:
+    """Read (prompt, completion) off any usage-metrics-shaped object."""
+    def as_int(value) -> int:
+        try:
+            return int(value or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    return (
+        as_int(getattr(metrics, "prompt_tokens", 0)),
+        as_int(getattr(metrics, "completion_tokens", 0)),
+    )
+
+
+def _distinct_llms(crew) -> dict[int, object] | None:
+    """Map ``id(llm) -> llm`` for every LLM object the crew's agents hold.
+
+    Returns None when the crew does not expose an ``agents`` collection at all,
+    which signals the caller to fall back rather than to report zero.
+
+    Keyed by :func:`id`, deliberately, not by equality: crewai's ``LLM`` is a
+    pydantic model, so ``==`` compares field values and would collapse two
+    genuinely separate LLMs that happen to share provider/model/temperature —
+    under-counting real spend. Identity is the exact question being asked: is
+    this the *same object*, whose counters were already added?
+
+    Holding the objects in the returned dict also keeps them alive for the
+    duration of the walk, so CPython cannot recycle an id onto another object.
+    """
+    agents = getattr(crew, "agents", None)
+    if agents is None:
+        return None
+    try:
+        holders = list(agents)
+    except TypeError:
+        return None
+
+    manager = getattr(crew, "manager_agent", None)
+    if manager is not None:
+        holders.append(manager)
+
+    unique: dict[int, object] = {}
+    for holder in holders:
+        llm = getattr(holder, "llm", None)
+        if llm is None:
+            continue
+        unique.setdefault(id(llm), llm)
+    return unique
+
+
+def _usage_per_llm_instance(crew) -> tuple[int, int] | None:
+    """Sum token usage once per distinct LLM object, or None if not possible.
+
+    ``Crew.calculate_usage_metrics()`` iterates *agents* and adds each agent's
+    ``llm.get_token_usage_summary()``. RedWeaver shares one ``crewai.LLM``
+    across every agent unless model routing overrides it (see
+    ``AgentLLMResolver.for_agent``), and usage accumulates on that single shared
+    object — so a 7-agent crew counted the same totals seven times, inflating
+    live cost ~7x and tripping a $1.50 ceiling at a true spend near $0.20.
+
+    Summing per distinct instance fixes that while staying correct when routing
+    *is* active: different agents then legitimately hold different LLM objects
+    and every one of them is counted.
+    """
+    instances = _distinct_llms(crew)
+    if instances is None:
+        return None
+
+    prompt = completion = 0
+    counted = 0
+    for llm in instances.values():
+        summarize = getattr(llm, "get_token_usage_summary", None)
+        if not callable(summarize):
+            continue
+        try:
+            summary = summarize()
+        except Exception:
+            logger.debug("get_token_usage_summary() failed", exc_info=True)
+            continue
+        if summary is None:
+            continue
+        agent_prompt, agent_completion = _token_counters(summary)
+        prompt += agent_prompt
+        completion += agent_completion
+        counted += 1
+
+    # No agent yielded a usable summary — say "unknown", not "zero", so the
+    # caller can still fall back to the crew-level aggregate.
+    if not counted:
+        return None
+    return prompt, completion
+
+
 def usage_from_crew(crew) -> tuple[int, int]:
     """Return (prompt_tokens, completion_tokens) for a crew, or (0, 0).
 
-    CrewAI exposes this as the **method** ``calculate_usage_metrics()``, which
-    aggregates each agent's token process and only then caches the result onto
-    ``crew.usage_metrics``. The attribute therefore does not exist until the
-    method has been called at least once.
+    Preferred source is a per-LLM-instance sum (see
+    :func:`_usage_per_llm_instance`), because crewai's own aggregate
+    double-counts a shared LLM object once per agent.
+
+    Failing that, CrewAI exposes the **method** ``calculate_usage_metrics()``,
+    which aggregates each agent's token process and only then caches the result
+    onto ``crew.usage_metrics``. The attribute therefore does not exist until
+    the method has been called at least once.
 
     Reading only the attribute — which this did — silently returned (0, 0) on
     every call, so the live cost never updated during a run and the budget
     ceiling could never trip. Prefer the method; fall back to the attribute so a
     crew that only caches a value (or a test double) still works.
     """
+    try:
+        per_instance = _usage_per_llm_instance(crew)
+    except Exception:
+        logger.debug("per-LLM usage walk failed", exc_info=True)
+        per_instance = None
+    if per_instance is not None:
+        return per_instance
+
     metrics = None
     calculate = getattr(crew, "calculate_usage_metrics", None)
     if callable(calculate):
@@ -83,9 +188,7 @@ def usage_from_crew(crew) -> tuple[int, int]:
         metrics = getattr(crew, "usage_metrics", None)
     if metrics is None:
         return 0, 0
-    prompt = int(getattr(metrics, "prompt_tokens", 0) or 0)
-    completion = int(getattr(metrics, "completion_tokens", 0) or 0)
-    return prompt, completion
+    return _token_counters(metrics)
 
 
 class BudgetGuard:

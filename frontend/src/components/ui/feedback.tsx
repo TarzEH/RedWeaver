@@ -119,6 +119,11 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
             <div
               role="dialog"
               aria-modal="true"
+              // A dialog with no accessible name is announced as just "dialog".
+              // Same wiring AttackPlanModal uses; only one confirm is ever open,
+              // so the ids can be constants.
+              aria-labelledby="rw-confirm-title"
+              aria-describedby={confirmState.message ? "rw-confirm-message" : undefined}
               className="animate-scale-in mx-4 w-full max-w-md rounded-xl border border-rw-border bg-rw-elevated p-5 shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             >
@@ -127,11 +132,13 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
                   <AlertTriangle size={20} className="mt-0.5 shrink-0 text-rw-danger" />
                 )}
                 <div className="flex-1">
-                  <h3 className="text-base font-semibold text-rw-text">
+                  <h3 id="rw-confirm-title" className="text-base font-semibold text-rw-text">
                     {confirmState.title}
                   </h3>
                   {confirmState.message && (
-                    <p className="mt-1.5 text-sm text-rw-muted">{confirmState.message}</p>
+                    <p id="rw-confirm-message" className="mt-1.5 text-sm text-rw-muted">
+                      {confirmState.message}
+                    </p>
                   )}
                 </div>
               </div>

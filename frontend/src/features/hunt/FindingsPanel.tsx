@@ -8,6 +8,7 @@ import { Skeleton } from "../../components/ui/Skeleton";
 import { useHuntContext } from "../../contexts/HuntContext";
 import { api } from "../../services/api";
 import { cn } from "../../lib/cn";
+import { SEVERITY_ORDER } from "../../config/theme";
 import type { Finding, Severity } from "../../types/api";
 
 interface FindingsPanelProps {
@@ -15,8 +16,10 @@ interface FindingsPanelProps {
   compact?: boolean;
 }
 
-const ALL_SEVERITIES: Severity[] = ["critical", "high", "medium", "low", "info"];
-const SEV_PRIORITY: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
+/** Severity rank for sorting, derived from the app-wide order (critical → info). */
+const SEV_PRIORITY: Record<string, number> = Object.fromEntries(
+  SEVERITY_ORDER.map((s, i) => [s, i]),
+);
 
 /** One pill treatment for every facet/toggle in this panel. */
 const pillCls = (active: boolean) =>
@@ -101,14 +104,14 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
   const filtered = filter === "all" ? searched : searched.filter((f) => f.severity === filter);
 
   const counts: Record<string, number> = { all: population.length };
-  for (const s of ALL_SEVERITIES) counts[s] = population.filter((f) => f.severity === s).length;
+  for (const s of SEVERITY_ORDER) counts[s] = population.filter((f) => f.severity === s).length;
 
   // How many of each severity are hidden behind the ruled-out filter. Without
   // this the facets read "Critical (0)" on a run whose report says two — the
   // findings are there and refuted, but the screen looks like they never
   // existed, which reads as a broken scan rather than a working verifier.
   const hiddenBySeverity: Record<string, number> = {};
-  for (const s of ALL_SEVERITIES) {
+  for (const s of SEVERITY_ORDER) {
     hiddenBySeverity[s] = hideRuledOut
       ? findings.filter((f) => f.severity === s && isRuledOut(f.status)).length
       : 0;
@@ -191,7 +194,7 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 animate-fade-in">
+    <div className="flex-1 overflow-y-auto p-6">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold text-rw-text flex items-center gap-2">
           <Shield size={20} /> Findings
@@ -219,7 +222,7 @@ export function FindingsPanel({ runId, compact = false }: FindingsPanelProps) {
         >
           All ({counts.all})
         </button>
-        {ALL_SEVERITIES.map((s) => (
+        {SEVERITY_ORDER.map((s) => (
           <button
             key={s}
             type="button"

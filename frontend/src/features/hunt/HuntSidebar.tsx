@@ -67,9 +67,12 @@ export function HuntSidebar({ runs, selectedRunId, open, onToggle, onSelectRun, 
     return (
       <button
         onClick={onToggle}
+        aria-label="Show hunt list"
+        aria-expanded={false}
+        title="Show hunt list"
         className="w-8 flex items-center justify-center border-r border-rw-border text-rw-dim hover:text-rw-muted hover:bg-rw-surface transition-colors"
       >
-        <PanelLeftOpen size={14} />
+        <PanelLeftOpen size={14} aria-hidden="true" />
       </button>
     );
   }
@@ -78,8 +81,14 @@ export function HuntSidebar({ runs, selectedRunId, open, onToggle, onSelectRun, 
     <aside className="w-56 border-r border-rw-border bg-rw-bg flex flex-col shrink-0 overflow-hidden">
       <div className="flex items-center justify-between px-3 py-2.5 border-b border-rw-border">
         <span className="text-xs font-medium text-rw-muted uppercase tracking-wider">Hunts</span>
-        <button onClick={onToggle} className="text-rw-dim hover:text-rw-muted p-1 rounded transition-colors">
-          <PanelLeftClose size={14} />
+        <button
+          onClick={onToggle}
+          aria-label="Hide hunt list"
+          aria-expanded={true}
+          title="Hide hunt list"
+          className="text-rw-dim hover:text-rw-muted p-1 rounded transition-colors"
+        >
+          <PanelLeftClose size={14} aria-hidden="true" />
         </button>
       </div>
 

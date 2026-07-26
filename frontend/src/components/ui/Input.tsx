@@ -5,8 +5,13 @@ import { cn } from "../../lib/cn";
  * One field treatment for the whole app — surface, radius, focus ring.
  * The ring is 2px at high opacity so the focused field is unmistakable
  * (the old 1px/20% ring was effectively invisible on the dark surface).
+ *
+ * Exported for the handful of bare `<input>`s that cannot use `<Input>` because
+ * they need to be a flex/grid item themselves (Input wraps in a positioning
+ * div for its icon slot). Compose with `cn()` — tailwind-merge lets the caller's
+ * width/padding/size win while the surface and focus ring stay canonical.
  */
-const fieldBase =
+export const fieldBase =
   "w-full rounded-lg border bg-rw-input text-sm text-rw-text " +
   "placeholder-rw-dim outline-none transition-colors duration-150 " +
   "focus:border-rw-accent focus:ring-2 focus:ring-rw-accent/60 " +

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
-import { severityHex, SEVERITY_ORDER } from "../../../config/theme";
+import { severityHex, SEVERITY_ORDER, CHART_TOOLTIP_STYLE } from "../../../config/theme";
 import type { Finding, VulnerabilityReport } from "../../../types/api";
 import { cn } from "../../../lib/cn";
 
@@ -120,13 +120,7 @@ export function VerdictHero({ report, className }: VerdictHeroProps) {
                 ))}
               </Pie>
               <Tooltip
-                contentStyle={{
-                  background: "#111827",
-                  border: "1px solid #334155",
-                  borderRadius: 8,
-                  fontSize: 12,
-                  textTransform: "capitalize",
-                }}
+                contentStyle={{ ...CHART_TOOLTIP_STYLE, textTransform: "capitalize" }}
               />
             </PieChart>
           </ResponsiveContainer>

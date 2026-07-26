@@ -6,6 +6,7 @@ import type {
   ToolsAPIResponse,
   VulnerabilityReport,
   EmbeddingConfig,
+  Severity,
 } from "../types/api";
 import { apiDelete, apiFetch } from "./http";
 
@@ -58,6 +59,13 @@ export interface AssetHost {
   host: string;
   findings: number;
   max_severity: string;
+  /**
+   * Full severity histogram for the host, summing to `findings`. Optional
+   * because a client may be talking to a backend that predates it; callers
+   * must degrade rather than assume, since guessing the split is what
+   * produced a bogus "Low 42" in the asset header.
+   */
+  by_severity?: Partial<Record<Severity, number>>;
   ports: number[];
   technologies: string[];
   cves: string[];

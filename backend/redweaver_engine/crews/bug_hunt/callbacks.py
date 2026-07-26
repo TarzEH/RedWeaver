@@ -1,4 +1,4 @@
-"""CrewAI event bridge: translates CrewAI callbacks to SSE events."""
+"""CrewAI event bridge: translates CrewAI callbacks into engine events."""
 
 from __future__ import annotations
 
@@ -182,7 +182,7 @@ def _extract_report_markdown(output: Any) -> str:
 
 
 class CrewAIEventBridge:
-    """Bridges CrewAI callbacks to the EventBus SSE system."""
+    """Bridges CrewAI callbacks to the caller-supplied event callback."""
 
     def __init__(
         self,

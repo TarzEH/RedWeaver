@@ -5,6 +5,7 @@ import { cn } from "../../../lib/cn";
 import {
   ATTACK_SCALE,
   ATTACK_ZERO_FILL,
+  ATTACK_ZERO_INK,
   attackCellColors,
   parseTechnique,
   tacticName,
@@ -81,7 +82,7 @@ function CountCell({
         />
         <span
           className="absolute inset-y-0 left-2 flex items-center text-xs font-bold tabular-nums"
-          style={{ color: zero ? "#94a3b8" : ink }}
+          style={{ color: zero ? ATTACK_ZERO_INK : ink }}
         >
           {count}
         </span>

@@ -216,13 +216,6 @@ export interface SSHConfig {
   port?: number;
 }
 
-export interface ChatResult {
-  reply: string;
-  run_id?: string;
-  deferred?: boolean;
-  created_run?: boolean;
-}
-
 /** Severity levels for vulnerability findings. */
 export type Severity = "critical" | "high" | "medium" | "low" | "info";
 

@@ -13,9 +13,14 @@ not switched to ``POST /api/hunts``: ``HuntCreateSerializer`` only derives
 target (a URL typed by an operator, with no Target object behind it) would
 create a run with an empty target there.
 """
+import uuid
+
 from rest_framework import status
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from apps.common.access import scoped_get_or_404, session_scope_q
 
 from .budget import parse_budget_usd
 from .models import Run, Session
@@ -35,6 +40,20 @@ def normalize_objective(value) -> str:
     """
     candidate = str(value or "").strip().lower()
     return candidate if candidate in OBJECTIVES else DEFAULT_OBJECTIVE
+
+
+def _as_uuid(value) -> uuid.UUID:
+    """Coerce a client-supplied session id to a UUID, 400-ing on garbage.
+
+    The body is free-form JSON, so ``session_id`` can be any type. Handing a
+    non-UUID straight to the UUID column raises deep in the driver — a 500 where
+    a 400 belongs. ``HuntCreateSerializer`` gets this from its ``UUIDField``;
+    this endpoint has no serializer, so it does the same check by hand.
+    """
+    try:
+        return uuid.UUID(str(value))
+    except (AttributeError, TypeError, ValueError):
+        raise ValidationError({"session_id": "Not a valid UUID."}) from None
 
 
 def _attack_techniques(raw) -> list[str]:
@@ -78,14 +97,28 @@ class ChatView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Same rule as ``HuntCreateSerializer.create``: the caller names the
+        # session by id, so the lookup must go through the access scope. An
+        # unscoped ``Session.objects.filter(id=...)`` let any authenticated user
+        # plant a run inside a stranger's session — inheriting their workspace —
+        # and then run a real scan attributed to that tenant. An id outside the
+        # caller's scope must 404, never fall through to an unscoped run.
+        user = getattr(request, "user", None)
+        if not getattr(user, "is_authenticated", False):
+            user = None
+
         session = None
         if body.get("session_id"):
-            session = Session.objects.filter(id=body["session_id"]).first()
+            if user is None:
+                raise PermissionDenied("Authentication is required to reference a session.")
+            session = scoped_get_or_404(
+                Session, user, session_scope_q, id=_as_uuid(body["session_id"])
+            )
 
         run = Run.objects.create(
             session=session,
             workspace=(session.workspace if session else None),
-            created_by=(request.user if request.user.is_authenticated else None),
+            created_by=user,
             target=target,
             scope=str(body.get("scope") or "").strip(),
             objective=normalize_objective(body.get("objective")),

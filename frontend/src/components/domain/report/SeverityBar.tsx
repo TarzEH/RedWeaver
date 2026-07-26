@@ -9,7 +9,7 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from "recharts";
-import { severityHex, SEVERITY_ORDER } from "../../../config/theme";
+import { severityHex, SEVERITY_ORDER, CHART_AXIS_TICK, CHART_TOOLTIP_STYLE } from "../../../config/theme";
 import type { Severity } from "../../../types/api";
 import { cn } from "../../../lib/cn";
 
@@ -97,16 +97,13 @@ export function SeverityBar({ counts, className }: SeverityBarProps) {
             width={68}
             axisLine={false}
             tickLine={false}
-            tick={{ fill: "#94a3b8", fontSize: 12 }}
+            // Severity names, not numbers — kept a step larger than the app's
+            // default tick size, but on the same colour token as every other axis.
+            tick={{ ...CHART_AXIS_TICK, fontSize: 12 }}
           />
           <Tooltip
             cursor={{ fill: "rgba(148,163,184,0.08)" }}
-            contentStyle={{
-              background: "#111827",
-              border: "1px solid #334155",
-              borderRadius: 8,
-              fontSize: 12,
-            }}
+            contentStyle={CHART_TOOLTIP_STYLE}
             formatter={(value: number | string) => [value, "Findings"]}
           />
           <Bar dataKey="count" radius={[4, 4, 4, 4]} barSize={20} isAnimationActive={false}>

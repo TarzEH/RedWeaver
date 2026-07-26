@@ -15,6 +15,12 @@ import { StatGrid } from "../../ui/StatGrid";
 import { FreshnessLabel } from "./FreshnessLabel";
 import { DeltaIndicator } from "./DeltaIndicator";
 import { percentile, type TrendMetric } from "../../../features/dashboard/metrics";
+import {
+  CHART_AXIS_STROKE,
+  CHART_AXIS_TICK,
+  CHART_GRID_STROKE,
+  CHART_TOOLTIP_STYLE,
+} from "../../../config/theme";
 import { formatTokens, formatUsd, sumUsd, toNumber } from "../../../lib/money";
 import { cn } from "../../../lib/cn";
 import type { RunSummary } from "../../../types/api";
@@ -192,21 +198,16 @@ export function CostSection({ runs, spendTrend, updatedAt, paused, onOpenRun }: 
                   <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.04} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-              <XAxis dataKey="label" tick={{ fill: "#8b9cb3", fontSize: 11 }} stroke="#334155" />
+              <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_STROKE} vertical={false} />
+              <XAxis dataKey="label" tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} />
               <YAxis
-                tick={{ fill: "#8b9cb3", fontSize: 11 }}
-                stroke="#334155"
+                tick={CHART_AXIS_TICK}
+                stroke={CHART_AXIS_STROKE}
                 width={52}
                 tickFormatter={axisUsd}
               />
               <Tooltip
-                contentStyle={{
-                  background: "#111827",
-                  border: "1px solid #334155",
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
+                contentStyle={CHART_TOOLTIP_STYLE}
                 formatter={(value) => [formatUsd(value as number), "Spend"]}
               />
               <Area

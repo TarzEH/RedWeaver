@@ -13,7 +13,6 @@
 
 import { percentChange } from "../../lib/money";
 
-export const DAY_MS = 86_400_000;
 /** Length of the comparison window, in days. Also the baseline's length. */
 export const WINDOW_DAYS = 7;
 /** Points in the sparkline: the current window plus the baseline window. */

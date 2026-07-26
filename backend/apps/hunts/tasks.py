@@ -68,8 +68,6 @@ def reap_stuck_runs() -> None:
     This periodic sweep marks any running/queued run whose age exceeds its own
     timeout_seconds + grace as failed so the UI and metrics stay truthful.
     """
-    from datetime import timedelta  # noqa: F401  (kept for parity / future use)
-
     now = timezone.now()
     candidates = Run.objects.filter(
         status__in=[RunStatus.RUNNING, RunStatus.QUEUED]

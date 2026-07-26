@@ -51,11 +51,14 @@ const ATTACK_SCALE_INK = ["#f1f5f9", "#0a0f1e", "#0a0f1e", "#0a0f1e", "#0a0f1e",
  */
 export const ATTACK_ZERO_FILL = "#1e293b";
 
+/** Ink for a scored zero — `--color-rw-muted`, readable on {@link ATTACK_ZERO_FILL}. */
+export const ATTACK_ZERO_INK = "#94a3b8";
+
 /**
  * Bin `count` into a {@link ATTACK_SCALE} index. `count <= 0` returns `-1`,
  * which callers must render as the zero/no-data treatment, never as a colour.
  */
-export function attackScaleStep(count: number, max: number): number {
+function attackScaleStep(count: number, max: number): number {
   if (!(count > 0) || !(max > 0)) return -1;
   const n = ATTACK_SCALE.length;
   return Math.min(n - 1, Math.max(0, Math.ceil((count / max) * n) - 1));
@@ -64,7 +67,7 @@ export function attackScaleStep(count: number, max: number): number {
 /** `{ fill, ink }` for a positive count; callers handle `count <= 0` themselves. */
 export function attackCellColors(count: number, max: number): { fill: string; ink: string } {
   const i = attackScaleStep(count, max);
-  if (i < 0) return { fill: ATTACK_ZERO_FILL, ink: "#94a3b8" };
+  if (i < 0) return { fill: ATTACK_ZERO_FILL, ink: ATTACK_ZERO_INK };
   return { fill: ATTACK_SCALE[i], ink: ATTACK_SCALE_INK[i] };
 }
 

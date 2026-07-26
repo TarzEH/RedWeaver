@@ -1,8 +1,8 @@
 """Event publisher: persist EventLog (ordered) + broadcast over Channels.
 
-Replaces the legacy in-memory EventBus. Safe to call from Celery/CrewAI worker
-threads (sync). The engine calls this via instrumentation.publish_event after
-``register_engine_sinks()`` wires it up at app start.
+Safe to call from Celery/CrewAI worker threads (sync). The engine reaches this
+via ``instrumentation.publish_event`` once ``ObservabilityConfig.ready()`` has
+registered :func:`record_and_publish` as the event publisher at app start.
 """
 import logging
 
@@ -90,12 +90,3 @@ def record_and_publish(run_id, event_type, data=None, agent=None) -> int | None:
     except Exception:
         logger.exception("record_and_publish recorder failed for %s", event_type)
     return seq
-
-
-# --- legacy compatibility shims -------------------------------------------- #
-def publish_event(run_id, event: dict) -> int | None:
-    return publish(run_id, event.get("type"), event.get("data") or {})
-
-
-def publish_sync(run_id, event: dict) -> int | None:
-    return publish_event(run_id, event)

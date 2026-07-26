@@ -26,8 +26,3 @@ app.conf.beat_schedule = {
         "schedule": 120.0,
     },
 }
-
-
-@app.task(bind=True, ignore_result=True)
-def debug_task(self) -> None:  # pragma: no cover - smoke test helper
-    print(f"Request: {self.request!r}")

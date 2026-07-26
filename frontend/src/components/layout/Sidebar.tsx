@@ -89,12 +89,15 @@ export function Sidebar() {
             {user.username.slice(0, 2)}
           </div>
         )}
+        {/* Same rule as the nav links above: an icon-only control names itself
+            with aria-label, because title alone is not a dependable name. */}
         <button
           onClick={logout}
+          aria-label="Sign out"
           title="Sign out"
           className="flex items-center justify-center w-10 h-10 rounded-lg text-rw-dim hover:text-red-400 hover:bg-red-500/10 transition-colors"
         >
-          <LogOut size={16} />
+          <LogOut size={16} aria-hidden="true" />
         </button>
       </div>
     </aside>

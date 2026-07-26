@@ -283,15 +283,6 @@ class HuntReport(_StrictModel):
     attack_chains: list[AttackChain] = Field(default_factory=list, description="Attack chains from exploit analyst")
 
 
-class PTReportResult(_StrictModel):
-    """Structured output from the PT Reporter agent."""
-
-    findings: list[FindingItem] = Field(default_factory=list, description="Security findings identified")
-    attack_chains: list[AttackChain] = Field(default_factory=list, description="Attack chain analysis")
-    report_markdown: str = Field(default="", description="Full report in Markdown format")
-    summary: str = Field(default="", description="Summary of PT Reporter analysis")
-
-
 class PrivEscResult(_StrictModel):
     """Structured output from the Privilege Escalation agent."""
 

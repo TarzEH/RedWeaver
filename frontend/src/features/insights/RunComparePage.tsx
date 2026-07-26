@@ -3,8 +3,8 @@ import { useParams } from "react-router-dom";
 import { AlertTriangle, GitCompareArrows, Plus, RefreshCw, Check, Inbox } from "lucide-react";
 import { api } from "../../services/api";
 import type { RunCompare } from "../../services/api";
-import type { Finding, RunSummary, Severity } from "../../types/api";
-import { SEVERITY_ORDER } from "../../config/theme";
+import type { Finding, RunSummary } from "../../types/api";
+import { normSeverity } from "../../config/theme";
 import { Card } from "../../components/ui/Card";
 import { Select } from "../../components/ui/Input";
 import { SeverityBadge } from "../../components/ui/SeverityBadge";
@@ -46,11 +46,6 @@ const COLUMN_CONFIG: Record<
     icon: Check,
   },
 };
-
-function normSeverity(value: string): Severity {
-  const v = value?.toLowerCase() as Severity;
-  return SEVERITY_ORDER.includes(v) ? v : "info";
-}
 
 function FindingRow({ finding }: { finding: Finding }) {
   return (

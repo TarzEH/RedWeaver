@@ -14,7 +14,14 @@ import {
   YAxis,
 } from "recharts";
 import { formatRelativeDate } from "../../utils/formatDate";
-import { severityHex, SEVERITY_ORDER } from "../../config/theme";
+import {
+  severityHex,
+  SEVERITY_ORDER,
+  CHART_AXIS_STROKE,
+  CHART_AXIS_TICK,
+  CHART_GRID_STROKE,
+  CHART_TOOLTIP_STYLE,
+} from "../../config/theme";
 import { Card } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { StatusBadge } from "../../components/ui/StatusBadge";
@@ -254,7 +261,7 @@ export function DashboardPage() {
       `${completed} completed · ${failed} failed`;
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 animate-fade-in">
+    <div className="flex-1 overflow-y-auto p-6">
       <PageHeader
         title="Dashboard"
         subtitle={subtitle}
@@ -404,13 +411,7 @@ export function DashboardPage() {
                       ))}
                     </Pie>
                     <Tooltip
-                      contentStyle={{
-                        background: "#111827",
-                        border: "1px solid #334155",
-                        borderRadius: 8,
-                        fontSize: 12,
-                        textTransform: "capitalize",
-                      }}
+                      contentStyle={{ ...CHART_TOOLTIP_STYLE, textTransform: "capitalize" }}
                     />
                   </PieChart>
                 </ResponsiveContainer>
@@ -476,17 +477,11 @@ export function DashboardPage() {
             ) : (
               <ResponsiveContainer width="100%" height={220}>
                 <AreaChart data={trendData} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fill: "#8b9cb3", fontSize: 11 }} stroke="#334155" />
-                  <YAxis tick={{ fill: "#8b9cb3", fontSize: 11 }} stroke="#334155" width={36} allowDecimals={false} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={CHART_GRID_STROKE} vertical={false} />
+                  <XAxis dataKey="name" tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} />
+                  <YAxis tick={CHART_AXIS_TICK} stroke={CHART_AXIS_STROKE} width={36} allowDecimals={false} />
                   <Tooltip
-                    contentStyle={{
-                      background: "#111827",
-                      border: "1px solid #334155",
-                      borderRadius: 8,
-                      fontSize: 12,
-                      textTransform: "capitalize",
-                    }}
+                    contentStyle={{ ...CHART_TOOLTIP_STYLE, textTransform: "capitalize" }}
                   />
                   {SEVERITY_ORDER.map((sev) => (
                     <Area

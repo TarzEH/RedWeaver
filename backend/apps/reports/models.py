@@ -15,8 +15,8 @@ class Report(TimeStampedUUIDModel):
     """Replaces legacy domain.report.Report.
 
     ``hunt_ids``/``finding_ids`` lists relax into a Run FK (+ reverse access to
-    that run's findings); ``ReportData`` etc. stay as on-demand Pydantic DTOs
-    in redweaver_engine.reports.generator.
+    that run's findings); the report body itself is assembled on demand by
+    ``apps.reports.views.build_report``.
     """
 
     run = models.ForeignKey(

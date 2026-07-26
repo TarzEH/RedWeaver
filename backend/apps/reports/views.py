@@ -11,6 +11,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.common.access import run_scope_q, scoped_get_or_404
+from apps.common.redaction import scrub_secrets
 from apps.findings.models import FindingStatus
 from apps.findings.serializers import FindingSerializer
 from apps.hunts.budget import default_budget_usd
@@ -328,11 +329,11 @@ def _render_html(r: dict) -> str:
     tiles = "".join(
         f'<div class="tile"><div class="n" style="color:{_SEV_HEX[s]}">{sev_counts.get(s, 0)}</div>'
         f'<div class="l">{s.upper()}</div></div>'
-        for s in ["critical", "high", "medium", "low", "info"]
+        for s in _SEV_ORDER
     )
     bar = "".join(
         f'<div style="flex:{max(sev_counts.get(s,0),0)};background:{_SEV_HEX[s]}" title="{s}: {sev_counts.get(s,0)}"></div>'
-        for s in ["critical", "high", "medium", "low", "info"] if sev_counts.get(s, 0)
+        for s in _SEV_ORDER if sev_counts.get(s, 0)
     )
     owasp = "".join(
         f'<span class="chip">{esc(c["category"])} <b>{c["count"]}</b></span>'
@@ -442,7 +443,12 @@ def run_report_export(request, run_id):
         try:
             html = _render_html(build_report(run))
         except Exception as exc:  # noqa: BLE001
-            return Response({"error": f"html render failed: {exc}"}, status=500)
+            # Never echo raw exception text: the report pulls a model name via
+            # the LLM factory, and a provider 401 embeds a partial API key in
+            # its message. Same treatment as hunts/agents/knowledge views.
+            return Response(
+                {"error": f"html render failed: {scrub_secrets(str(exc))}"}, status=500
+            )
         resp = HttpResponse(html, content_type="text/html")
         resp["Content-Disposition"] = f'attachment; filename="{base}.html"'
         return resp

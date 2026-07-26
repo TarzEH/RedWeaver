@@ -9,7 +9,7 @@ import {
   Target as TargetIcon,
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
-import { Input } from "../../components/ui/Input";
+import { Input, fieldBase } from "../../components/ui/Input";
 import { AttackPlanModal } from "../sessions/AttackPlanModal";
 import { cn } from "../../lib/cn";
 import type { SSHConfig } from "../../types/api";
@@ -111,7 +111,7 @@ export function NewHuntForm({ submitting, error, onSubmit }: NewHuntFormProps) {
         />
       )}
 
-      <form onSubmit={submit} className="mx-auto w-full max-w-xl animate-fade-in space-y-6">
+      <form onSubmit={submit} className="mx-auto w-full max-w-xl space-y-6">
         <header className="text-center">
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-rw-surface">
             <Crosshair size={24} className="text-rw-accent" aria-hidden />
@@ -234,7 +234,7 @@ export function NewHuntForm({ submitting, error, onSubmit }: NewHuntFormProps) {
                   placeholder="No limit"
                   value={budgetUsd}
                   onChange={(e) => setBudgetUsd(e.target.value)}
-                  className="w-28 rounded border border-rw-border bg-rw-input px-2 py-1 text-xs tabular-nums text-rw-text placeholder-rw-dim outline-none focus:border-rw-accent focus:ring-2 focus:ring-rw-accent/60"
+                  className={cn(fieldBase, "w-28 rounded border-rw-border px-2 py-1 text-xs tabular-nums")}
                 />
               </div>
               <p className="mt-2 text-[11px] leading-relaxed text-rw-dim">
@@ -272,7 +272,7 @@ export function NewHuntForm({ submitting, error, onSubmit }: NewHuntFormProps) {
                     onChange={(e) =>
                       setSSHConfig((c) => ({ ...c, [field.key]: e.target.value || undefined }))
                     }
-                    className="flex-1 rounded border border-rw-border bg-rw-input px-2 py-1 text-xs text-rw-text placeholder-rw-dim outline-none focus:border-rw-accent focus:ring-2 focus:ring-rw-accent/60"
+                    className={cn(fieldBase, "w-auto flex-1 rounded border-rw-border px-2 py-1 text-xs")}
                   />
                 </div>
               ))}
@@ -287,7 +287,7 @@ export function NewHuntForm({ submitting, error, onSubmit }: NewHuntFormProps) {
                   onChange={(e) =>
                     setSSHConfig((c) => ({ ...c, port: parseInt(e.target.value, 10) || 22 }))
                   }
-                  className="w-24 rounded border border-rw-border bg-rw-input px-2 py-1 text-xs tabular-nums text-rw-text outline-none focus:border-rw-accent focus:ring-2 focus:ring-rw-accent/60"
+                  className={cn(fieldBase, "w-24 rounded border-rw-border px-2 py-1 text-xs tabular-nums")}
                 />
               </div>
               <p className="text-[11px] leading-relaxed text-rw-dim">

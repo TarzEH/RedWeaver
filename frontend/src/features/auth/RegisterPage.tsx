@@ -64,7 +64,7 @@ export function RegisterPage({ onSwitchToLogin }: RegisterPageProps) {
               onChange={(e) => setPassword(e.target.value)}
               required
             />
-            {error && <p className="text-xs text-red-400">{error}</p>}
+            {error && <p role="alert" className="text-xs text-red-400">{error}</p>}
             <Button type="submit" loading={loading} className="w-full">
               Create account
             </Button>

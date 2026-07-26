@@ -155,7 +155,7 @@ export function ReportView({ runId: runIdProp }: ReportViewProps) {
   const verification = report;
 
   return (
-    <div className="flex-1 overflow-y-auto bg-rw-bg p-6 animate-fade-in">
+    <div className="flex-1 overflow-y-auto bg-rw-bg p-6">
       <div className="mx-auto max-w-6xl space-y-8">
         {/* Branded header */}
         <header className="flex flex-wrap items-center gap-4 border-b border-rw-border pb-5">

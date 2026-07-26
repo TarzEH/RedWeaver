@@ -3,15 +3,7 @@ import base64
 import json
 import urllib.error
 import urllib.request
-from typing import Any, Protocol
-
-
-class VirusTotalClientProtocol(Protocol):
-    """Protocol for VirusTotal URL operations."""
-
-    def get_url_report(self, url: str) -> dict[str, Any]:
-        """Get URL report. Raises on API error."""
-        ...
+from typing import Any
 
 
 class VirusTotalClient:

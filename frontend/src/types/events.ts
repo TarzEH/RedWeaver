@@ -9,8 +9,6 @@ export const EVENT_FINDING = "finding";
 export const EVENT_GRAPH_STATE = "graph_state";
 export const EVENT_HUNT_COMPLETE = "hunt_complete";
 export const EVENT_HUNT_ERROR = "hunt_error";
-export const EVENT_SUBAGENT_SPAWN = "subagent_spawn";
-export const EVENT_TODO_UPDATE = "todo_update";
 export const EVENT_AGENT_HANDOFF = "agent_handoff";
 
 export type SSEEventType =
@@ -23,8 +21,6 @@ export type SSEEventType =
   | typeof EVENT_GRAPH_STATE
   | typeof EVENT_HUNT_COMPLETE
   | typeof EVENT_HUNT_ERROR
-  | typeof EVENT_SUBAGENT_SPAWN
-  | typeof EVENT_TODO_UPDATE
   | typeof EVENT_AGENT_HANDOFF;
 
 export interface SSEEvent {
@@ -88,22 +84,6 @@ export interface HuntErrorEvent {
   data: { run_id: string; error: string };
 }
 
-export interface SubAgentSpawnEvent {
-  type: typeof EVENT_SUBAGENT_SPAWN;
-  data: {
-    parent_agent: string;
-    subagent_name: string;
-    task_description: string;
-  };
-}
-
-export interface TodoUpdateEvent {
-  type: typeof EVENT_TODO_UPDATE;
-  data: {
-    todos: Array<{ task?: string; content?: string; status?: string }>;
-  };
-}
-
 export interface AgentHandoffEvent {
   type: typeof EVENT_AGENT_HANDOFF;
   data: {
@@ -125,8 +105,6 @@ export type TypedSSEEvent =
   | GraphStateEvent
   | HuntCompleteEvent
   | HuntErrorEvent
-  | SubAgentSpawnEvent
-  | TodoUpdateEvent
   | AgentHandoffEvent;
 
 /** Shared graph state shape used by useRunStream and HuntContext. */

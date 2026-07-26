@@ -10,7 +10,7 @@
 export const NAVIGATOR_URL = "https://mitre-attack.github.io/attack-navigator/";
 
 /** Trigger a browser download of an ATT&CK Navigator layer JSON. */
-export function downloadLayer(layer: unknown, filename = "attack-layer.json"): void {
+function downloadLayer(layer: unknown, filename = "attack-layer.json"): void {
   const blob = new Blob([JSON.stringify(layer, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

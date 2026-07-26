@@ -90,7 +90,7 @@ export function KnowledgePage() {
   const unavailable = health?.status === "unavailable";
 
   return (
-    <div className="@container relative flex flex-1 min-h-0 flex-col overflow-hidden animate-fade-in">
+    <div className="@container relative flex flex-1 min-h-0 flex-col overflow-hidden">
       {/* Header */}
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-rw-border px-6 py-4">
         <div className="flex min-w-0 items-center gap-3">
@@ -267,7 +267,7 @@ function DocumentViewer({
   if (loading) {
     return (
       <div className="flex flex-1 items-center justify-center">
-        <Spinner size="md" label="Loading document" />
+        <Spinner size="md" label="Loading document…" />
       </div>
     );
   }
@@ -325,5 +325,3 @@ function DocumentViewer({
     </article>
   );
 }
-
-export default KnowledgePage;
