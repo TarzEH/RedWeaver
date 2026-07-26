@@ -16,8 +16,14 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      # The suite runs without Django and without a database on purpose — that
+      # is what keeps this job at ~15s. pydantic is the one exception: the
+      # verification crew declares its structured-output schema at module
+      # scope, so importing it (for the pure `findings_payload` helper) needs
+      # pydantic present. Everything else the tests reach is stdlib-only, and
+      # yaml is imported lazily inside the functions that use it.
       - name: Install test tooling
-        run: pip install pytest ruff
+        run: pip install pytest ruff pydantic
       - name: Lint (ruff)
         run: |
           ruff check \
