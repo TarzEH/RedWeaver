@@ -3,7 +3,13 @@ name: Release
 # Creates a GitHub Release automatically:
 #   • push a version tag  ->  git tag v0.9.0 && git push origin v0.9.0
 #   • or run manually from the Actions tab (workflow_dispatch) with a tag input
-# Release notes are auto-generated from the commits/PRs since the previous tag.
+#
+# Notes come from the matching CHANGELOG.md section when there is one. The old
+# --generate-notes-only behaviour produced empty releases here: it summarises
+# merged PRs, and this project lands work as direct commits to master, so there
+# was nothing for it to list. --generate-notes is still passed so the
+# "Full Changelog" compare link and any future PR list get appended underneath.
+#
 # A tag containing a hyphen (e.g. v0.9.0-beta) is published as a pre-release.
 
 on:
@@ -38,7 +44,29 @@ jobs:
             echo "prerelease=" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create release with auto-generated notes
+      # Pull the "## [x.y.z] — date" section for this tag out of CHANGELOG.md.
+      # Writes notes.md only when a section exists, so a tag released without a
+      # changelog entry still falls back to --generate-notes alone.
+      - name: Extract CHANGELOG section
+        id: notes
+        run: |
+          VERSION="${{ steps.meta.outputs.tag }}"
+          VERSION="${VERSION#v}"
+          if [ -f CHANGELOG.md ]; then
+            awk -v v="$VERSION" '
+              $0 ~ "^## \\[" v "\\]" { found = 1; next }
+              found && /^## \[/       { exit }
+              found                   { print }
+            ' CHANGELOG.md > notes.md
+          fi
+          if [ -s notes.md ]; then
+            echo "file=--notes-file notes.md" >> "$GITHUB_OUTPUT"
+          else
+            echo "No CHANGELOG.md section for $VERSION - using generated notes only."
+            echo "file=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -47,4 +75,5 @@ jobs:
             --target "${{ github.sha }}" \
             --title "${{ steps.meta.outputs.tag }}" \
             --generate-notes \
+            ${{ steps.notes.outputs.file }} \
             ${{ steps.meta.outputs.prerelease }}

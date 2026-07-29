@@ -11,6 +11,7 @@
   <a href="#tools">Tools</a> &bull;
   <a href="#llm-providers">LLM Providers</a> &bull;
   <a href="#contributing">Contributing</a> &bull;
+  <a href="#changelog">Changelog</a> &bull;
   <a href="#license">License</a>
 </p>
 
@@ -372,6 +373,13 @@ RedWeaver is a security research and educational tool. **Only use it against tar
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+---
+
+## Changelog
+
+Every release is documented in [CHANGELOG.md](CHANGELOG.md), and published to
+[Releases](https://github.com/TarzEH/RedWeaver/releases).
 
 ---
 
