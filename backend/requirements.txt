@@ -22,7 +22,7 @@ daphne>=4.1
 # Async task execution: Celery (broker = Redis) for out-of-process crew.kickoff
 # ----------------------------------------------------------------------------
 celery>=5.4
-django-celery-results>=2.5
+django-celery-results>=2.6.0
 
 # ----------------------------------------------------------------------------
 # PostgreSQL driver (system of record) + pgvector (KB RAG embeddings)
