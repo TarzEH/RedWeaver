@@ -69,7 +69,7 @@ langchain-huggingface>=0.1.2
 sentence-transformers>=3.0.0
 
 # Anthropic support
-anthropic>=0.40.0
+anthropic>=1.17.0
 
 # OpenAI client
 openai>=1.0.0,<2.0.0
