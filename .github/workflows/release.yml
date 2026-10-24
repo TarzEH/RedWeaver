@@ -26,12 +26,13 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  verify:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Determine tag + prerelease flag
         id: meta
@@ -44,13 +45,34 @@ jobs:
             echo "prerelease=" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Verify tag matches __version__
+        run: |
+          TAG="${{ steps.meta.outputs.tag }}"
+          FILE_VER=$(python -c "exec(open('backend/redweaver/__version__.py').read()); print(__version__)")
+          if [ "v${FILE_VER}" != "$TAG" ]; then
+            echo "::error::Tag $TAG does not match __version__ ($FILE_VER)"
+            exit 1
+          fi
+
+  test:
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       # Pull the "## [x.y.z] — date" section for this tag out of CHANGELOG.md.
       # Writes notes.md only when a section exists, so a tag released without a
       # changelog entry still falls back to --generate-notes alone.
       - name: Extract CHANGELOG section
         id: notes
         run: |
-          VERSION="${{ steps.meta.outputs.tag }}"
+          VERSION="${{ needs.verify.outputs.tag }}"
           VERSION="${VERSION#v}"
           if [ -f CHANGELOG.md ]; then
             awk -v v="$VERSION" '
@@ -70,10 +92,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "${{ steps.meta.outputs.tag }}" \
+          gh release create "${{ needs.verify.outputs.tag }}" \
             --repo "${{ github.repository }}" \
             --target "${{ github.sha }}" \
-            --title "${{ steps.meta.outputs.tag }}" \
+            --title "${{ needs.verify.outputs.tag }}" \
             --generate-notes \
             ${{ steps.notes.outputs.file }} \
-            ${{ steps.meta.outputs.prerelease }}
+            ${{ needs.verify.outputs.prerelease }}

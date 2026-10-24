@@ -4,6 +4,11 @@ on:
   push:
     branches: ["**"]
   pull_request:
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -33,3 +38,28 @@ jobs:
             redweaver_engine/tools/scope.py tests/
       - name: Unit tests
         run: pytest -q
+
+  version-sync:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Read __version__
+        id: ver
+        run: |
+          VER=$(python -c "exec(open('backend/redweaver/__version__.py').read()); print(__version__)")
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+      - name: Sync version tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          TAG="v${{ steps.ver.outputs.version }}"
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
